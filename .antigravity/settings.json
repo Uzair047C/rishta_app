@@ -1,0 +1,31 @@
+{
+  "dart.flutterHotReloadOnSave": "all",
+  "dart.previewFlutterUiGuides": true,
+  "dart.trackWidgetCreation": true,
+  "dart.vmServicePort": 8181,
+  "dart.observatoryPort": 8181,
+  "dart.flutterAdditionalArgs": [
+    "--cache-dir=.dart_tool/flutter_build/dill_cache"
+  ],
+  "files.watcherExclude": {
+    "**/.git/**": true,
+    "**/.dart_tool/**": true,
+    "**/build/**": true,
+    "**/backend/**": true,
+    "**/memory/**": true,
+    "**/.idea/**": true,
+    "**/.claude/**": true,
+    "**/android/**": true,
+    "**/ios/**": true,
+    "**/windows/**": true,
+    "**/linux/**": true,
+    "**/macos/**": true,
+    "**/web/**": true
+  },
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 50,
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll": "explicit"
+  }
+}

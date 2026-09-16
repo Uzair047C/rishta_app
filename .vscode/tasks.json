@@ -1,0 +1,86 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Ensure Build Cache",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-Command",
+        "New-Item -ItemType Directory -Force -Path 'app/.dart_tool/flutter_build/dill_cache' | Out-Null"
+      ],
+      "presentation": {
+        "reveal": "silent"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Live Preview Bridge: Start",
+      "type": "shell",
+      "command": "dart",
+      "args": [
+        "run",
+        "tool/live_preview_bridge.dart",
+        "--vm-service-uri=ws://127.0.0.1:8181/ws",
+        "--bridge-port=8182"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}/app"
+      },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Live Preview: Trigger Hot Reload",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-Command",
+        "Invoke-RestMethod -Uri 'http://127.0.0.1:8182/reload' -Method Post"
+      ],
+      "presentation": {
+        "reveal": "silent"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Live Preview: Toggle Debug Paint Bounds",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-Command",
+        "Invoke-RestMethod -Uri 'http://127.0.0.1:8182/toggle-debug-paint' -Method Post"
+      ],
+      "presentation": {
+        "reveal": "silent"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Live Preview: Toggle Repaint Rainbow",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-Command",
+        "Invoke-RestMethod -Uri 'http://127.0.0.1:8182/toggle-repaint-rainbow' -Method Post"
+      ],
+      "presentation": {
+        "reveal": "silent"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Live Preview: Toggle Performance Overlay",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-Command",
+        "Invoke-RestMethod -Uri 'http://127.0.0.1:8182/toggle-perf-overlay' -Method Post"
+      ],
+      "presentation": {
+        "reveal": "silent"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Flutter: Live Preview (Chrome CanvasKit)",
+      "type": "dart",
+      "request": "launch",
+      "cwd": "app",
+      "program": "app/lib/main.dart",
+      "deviceId": "chrome",
+      "args": [
+        "-d",
+        "chrome",
+        "--hot-reload-on-save",
+        "--enable-experiment=non-nullable",
+        "--enable-vm-service=8181",
+        "--vm-service-port=8181",
+        "--track-widget-creation",
+        "--cache-dir=.dart_tool/flutter_build/dill_cache",
+        "--dart-define=API_BASE=http://localhost:3000"
+      ],
+      "preLaunchTask": "Ensure Build Cache",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "name": "Flutter: Desktop Impeller (Hardware Accelerated)",
+      "type": "dart",
+      "request": "launch",
+      "cwd": "app",
+      "program": "app/lib/main.dart",
+      "deviceId": "windows",
+      "args": [
+        "-d",
+        "windows",
+        "--enable-impeller",
+        "--enable-vm-service=8181",
+        "--vm-service-port=8181",
+        "--observatory-port=8181",
+        "--track-widget-creation",
+        "--cache-dir=.dart_tool/flutter_build/dill_cache",
+        "--dart-define=API_BASE=http://localhost:3000"
+      ],
+      "preLaunchTask": "Ensure Build Cache"
+    },
+    {
+      "name": "Flutter: Machine Daemon Mode (JSON-RPC)",
+      "type": "dart",
+      "request": "launch",
+      "cwd": "app",
+      "program": "app/lib/main.dart",
+      "args": [
+        "run",
+        "--machine",
+        "-d",
+        "chrome",
+        "--vm-service-port=8181",
+        "--track-widget-creation",
+        "--cache-dir=.dart_tool/flutter_build/dill_cache"
+      ]
+    },
+    {
+      "name": "Live Preview Bridge: Attach & Sync",
+      "type": "dart",
+      "request": "launch",
+      "cwd": "app",
+      "program": "app/tool/live_preview_bridge.dart",
+      "args": [
+        "--vm-service-uri=ws://127.0.0.1:8181/ws",
+        "--bridge-port=8182",
+        "--debounce-ms=35"
+      ]
+    }
+  ]
+}

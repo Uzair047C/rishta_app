@@ -1,0 +1,5 @@
+# Project dependencies.
+#
+# No Python code exists in this repo yet, so this is intentionally empty. When
+# a Python tool needs a package, list it here and run:
+#   pip install -r requirements.txt
