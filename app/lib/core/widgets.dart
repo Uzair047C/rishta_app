@@ -228,3 +228,83 @@ class SectionHeader extends StatelessWidget {
         ),
       );
 }
+
+// ── shared OOP helpers ─────────────────────────────────────────────────────
+
+/// One-line name + age + verified check. Reused by feed cards and match rows.
+class ProfileNameBadge extends StatelessWidget {
+  const ProfileNameBadge({
+    super.key,
+    required this.name,
+    this.age,
+    this.verification = VerificationStatus.pending,
+    this.style,
+  });
+
+  final String name;
+  final int? age;
+  final VerificationStatus verification;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: [
+          Flexible(
+            child: Text(
+              age == null ? name : '$name, $age',
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            ),
+          ),
+          if (verification.isVerified) ...[
+            const SizedBox(width: Tokens.spaceXs),
+            VerificationBadge(status: verification),
+          ],
+        ],
+      );
+}
+
+/// Inline error text with live-region semantics — the pattern every
+/// onboarding step repeats.
+class ErrorText extends StatelessWidget {
+  const ErrorText(this.message, {super.key, this.textAlign});
+  final String message;
+  final TextAlign? textAlign;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        liveRegion: true,
+        child: Text(
+          message,
+          textAlign: textAlign,
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        ),
+      );
+}
+
+/// Wraps a Future in the busy/error lifecycle every onboarding step repeats.
+/// The mixing state calls [progress] for async actions and [fail] for plain
+/// validation messages; [busy] and [error] drive the UI.
+mixin FormProgress<T extends StatefulWidget> on State<T> {
+  bool _busy = false;
+  String? _error;
+  bool get busy => _busy;
+  String? get error => _error;
+
+  /// Sets (or with a null argument, clears) the inline error.
+  void fail([String? message]) => setState(() => _error = message);
+
+  Future<void> progress(Future<void> Function() fn) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await fn();
+    } catch (e) {
+      if (mounted) setState(() => _error = messageFor(e));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+}

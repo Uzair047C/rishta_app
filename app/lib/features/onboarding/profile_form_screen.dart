@@ -18,7 +18,7 @@ class ProfileFormScreen extends ConsumerStatefulWidget {
   ConsumerState<ProfileFormScreen> createState() => _ProfileFormScreenState();
 }
 
-class _ProfileFormScreenState extends ConsumerState<ProfileFormScreen> {
+class _ProfileFormScreenState extends ConsumerState<ProfileFormScreen> with FormProgress {
   final _form = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _bio = TextEditingController();
@@ -32,8 +32,6 @@ class _ProfileFormScreenState extends ConsumerState<ProfileFormScreen> {
   Position? _position;
   final _interests = <int>{};
   final _languages = <int>{};
-  bool _busy = false;
-  String? _error;
 
   @override
   void dispose() {
@@ -73,10 +71,10 @@ class _ProfileFormScreenState extends ConsumerState<ProfileFormScreen> {
   /// Coordinates are optional: the feed shows profiles it cannot measure rather
   /// than emptying itself, so a denied permission degrades instead of blocking.
   Future<void> _useCurrentLocation() async {
-    setState(() => _error = null);
+    fail();
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
-        setState(() => _error = 'Turn on location services to use distance filters.');
+        fail('Turn on location services to use distance filters.');
         return;
       }
       var permission = await Geolocator.checkPermission();
@@ -84,32 +82,28 @@ class _ProfileFormScreenState extends ConsumerState<ProfileFormScreen> {
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-        setState(() => _error = 'Location permission denied. You can still set your city manually.');
+        fail('Location permission denied. You can still set your city manually.');
         return;
       }
       final position = await Geolocator.getCurrentPosition();
       if (mounted) setState(() => _position = position);
     } catch (_) {
-      if (mounted) setState(() => _error = 'Could not read your location.');
+      if (mounted) fail('Could not read your location.');
     }
   }
 
   Future<void> _save() async {
     if (!_form.currentState!.validate()) return;
     if (_dob == null) {
-      setState(() => _error = 'Please choose your date of birth.');
+      fail('Please choose your date of birth.');
       return;
     }
     if (_interests.isEmpty) {
-      setState(() => _error = 'Pick at least one interest so we can match you well.');
+      fail('Pick at least one interest so we can match you well.');
       return;
     }
 
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
+    await progress(() async {
       await ref.read(myProfileProvider.notifier).save({
         'name': _name.text.trim(),
         'gender': _gender,
@@ -125,11 +119,7 @@ class _ProfileFormScreenState extends ConsumerState<ProfileFormScreen> {
         'languageIds': _languages.toList(),
       });
       if (mounted) widget.onNext();
-    } catch (e) {
-      if (mounted) setState(() => _error = messageFor(e));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    });
   }
 
   @override
@@ -237,20 +227,14 @@ class _ProfileFormScreenState extends ConsumerState<ProfileFormScreen> {
               ),
               const SizedBox(height: Tokens.spaceXl),
 
-              if (_error != null) ...[
-                Semantics(
-                  liveRegion: true,
-                  child: Text(
-                    _error!,
-                    style: TextStyle(color: Theme.of(context).colorScheme.error),
-                  ),
-                ),
+              if (error != null) ...[
+                ErrorText(error!),
                 const SizedBox(height: Tokens.spaceMd),
               ],
 
               FilledButton(
-                onPressed: _busy ? null : _save,
-                child: Text(_busy ? 'Saving…' : 'Continue'),
+                onPressed: busy ? null : _save,
+                child: Text(busy ? 'Saving…' : 'Continue'),
               ),
               const SizedBox(height: Tokens.spaceLg),
             ],

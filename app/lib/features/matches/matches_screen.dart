@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api.dart';
 import '../../core/models.dart';
 import '../../core/providers.dart';
-import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import 'chat_screen.dart';
 
@@ -51,18 +51,7 @@ class _MatchTile extends ConsumerWidget {
           child: ProfilePhoto(url: other.primaryPhoto, label: '${other.displayName} profile photo'),
         ),
       ),
-      title: Row(
-        children: [
-          Flexible(
-            child: Text(
-              '${other.displayName}${other.age == null ? '' : ', ${other.age}'}',
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          const SizedBox(width: Tokens.spaceXs),
-          VerificationBadge(status: other.verification),
-        ],
-      ),
+      title: ProfileNameBadge(name: other.displayName, age: other.age, verification: other.verification),
       subtitle: Text(
         other.bio.isEmpty ? (other.location ?? '') : other.bio,
         maxLines: 1,
@@ -97,7 +86,7 @@ class _MatchTile extends ConsumerWidget {
       builder: (dialogContext) => SimpleDialog(
         title: const Text('Report this profile'),
         children: [
-          for (final r in const ['Inappropriate photos', 'Harassment', 'Fake profile', 'Spam or scam'])
+          for (final r in kReportReasons)
             SimpleDialogOption(
               onPressed: () => Navigator.of(dialogContext).pop(r),
               child: Text(r),

@@ -24,11 +24,10 @@ class SelfieScreen extends ConsumerStatefulWidget {
   ConsumerState<SelfieScreen> createState() => _SelfieScreenState();
 }
 
-class _SelfieScreenState extends ConsumerState<SelfieScreen> with WidgetsBindingObserver {
+class _SelfieScreenState extends ConsumerState<SelfieScreen>
+    with WidgetsBindingObserver, FormProgress {
   CameraController? _camera;
   String? _sessionId;
-  bool _busy = false;
-  String? _error;
 
   @override
   void initState() {
@@ -74,7 +73,7 @@ class _SelfieScreenState extends ConsumerState<SelfieScreen> with WidgetsBinding
       await _openLivenessSession();
     } on CameraException catch (e) {
       if (mounted) {
-        setState(() => _error = e.code == 'CameraAccessDenied'
+        fail(e.code == 'CameraAccessDenied'
             ? 'Camera access is needed to verify you. Enable it in Settings and try again.'
             : 'Could not start the camera.');
       }
@@ -100,11 +99,7 @@ class _SelfieScreenState extends ConsumerState<SelfieScreen> with WidgetsBinding
     final camera = _camera;
     if (camera == null || !camera.value.isInitialized) return;
 
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
+    await progress(() async {
       final shot = await camera.takePicture();
       final userId = ref.read(myProfileProvider).valueOrNull?.userId ?? 'unknown';
       final url = await Storage.upload(Storage.pathFor(userId, 'selfies'), File(shot.path));
@@ -119,13 +114,9 @@ class _SelfieScreenState extends ConsumerState<SelfieScreen> with WidgetsBinding
       if (result?.isVerified ?? false) {
         widget.onDone();
       } else {
-        setState(() => _error = 'We could not verify that photo. Make sure your face is well lit and clearly visible.');
+        fail('We could not verify that photo. Make sure your face is well lit and clearly visible.');
       }
-    } catch (e) {
-      if (mounted) setState(() => _error = messageFor(e));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    });
   }
 
   @override
@@ -158,21 +149,14 @@ class _SelfieScreenState extends ConsumerState<SelfieScreen> with WidgetsBinding
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: Tokens.spaceMd),
-                if (_error != null) ...[
-                  Semantics(
-                    liveRegion: true,
-                    child: Text(
-                      _error!,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Theme.of(context).colorScheme.error),
-                    ),
-                  ),
+                if (error != null) ...[
+                  ErrorText(error!, textAlign: TextAlign.center),
                   const SizedBox(height: Tokens.spaceSm),
                 ],
                 FilledButton.icon(
-                  onPressed: _busy || camera == null ? null : _capture,
+                  onPressed: busy || camera == null ? null : _capture,
                   icon: const Icon(Icons.camera_alt),
-                  label: Text(_busy ? 'Checking…' : 'Take selfie'),
+                  label: Text(busy ? 'Checking…' : 'Take selfie'),
                 ),
               ],
             ),

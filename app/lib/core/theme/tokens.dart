@@ -13,8 +13,10 @@ abstract final class Tokens {
   // Tan surface palette for direct use
   static const tanBase = Color(0xFFF5E6D3);
   static const tanDark = Color(0xFFEDD5B8);
+  static const tanCard = Color(0xFFFDF6EE);
   static const pinkAccent = Color(0xFFD4748C);
   static const pinkLight = Color(0xFFF2B8C6);
+  static const pinkDeep = Color(0xFFB05570);
 
   // Radii scale
   static const radiusXs = 4.0;

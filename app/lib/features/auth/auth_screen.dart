@@ -1,4 +1,3 @@
-// ignore_for_file: unused_import
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,14 +8,14 @@ import '../../core/providers.dart';
 import '../../core/theme.dart';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Brand colours (inline so the screen has no external colour deps)
+// Brand colours — short binders over the shared design tokens.
 // ═══════════════════════════════════════════════════════════════════════════
-const _pink = Color(0xFFD4748C);
-const _pinkDeep = Color(0xFFB05570);
-const _pinkLight = Color(0xFFF2B8C6);
-const _tanBase = Color(0xFFF5E6D3);
-const _tanDark = Color(0xFFEDD5B8);
-const _tanCard = Color(0xFFFDF6EE);
+const _pink = Tokens.pinkAccent;
+const _pinkDeep = Tokens.pinkDeep;
+const _pinkLight = Tokens.pinkLight;
+const _tanBase = Tokens.tanBase;
+const _tanDark = Tokens.tanDark;
+const _tanCard = Tokens.tanCard;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Country model + full dial-code list
@@ -28,7 +27,7 @@ class _Country {
   final String dialCode; // e.g. "+92"
   final String flag; // emoji flag
 
-  String get displayName => '${flag}  $name ($dialCode)';
+  String get displayName => '$flag  $name ($dialCode)';
 }
 
 // 65 most common countries, sorted by name
@@ -221,15 +220,19 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
           forceResendingToken: _resendToken,
           verificationCompleted: (cred) => _auth.signInWithCredential(cred),
           verificationFailed: (e) {
-            if (mounted) setState(() => _error = _label(e));
+            if (mounted) {
+              setState(() => _error = _label(e));
+            }
           },
           codeSent: (id, resend) {
-            if (mounted) setState(() {
-              _verificationId = id;
-              _resendToken = resend;
-              _codeSent = true;
-              _error = null;
-            });
+            if (mounted) {
+              setState(() {
+                _verificationId = id;
+                _resendToken = resend;
+                _codeSent = true;
+                _error = null;
+              });
+            }
           },
           codeAutoRetrievalTimeout: (_) {},
           timeout: const Duration(seconds: 60),

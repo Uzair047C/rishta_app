@@ -54,6 +54,9 @@ class ApiException implements Exception {
 
 typedef TokenProvider = Future<String?> Function();
 
+/// Standard report reasons, shared by feed and match reporting.
+const kReportReasons = ['Inappropriate photos', 'Harassment', 'Fake profile', 'Spam or scam'];
+
 /// HTTP client for the Rishta API.
 ///
 /// Generic over the decoded body: callers pass the parse function, so there is

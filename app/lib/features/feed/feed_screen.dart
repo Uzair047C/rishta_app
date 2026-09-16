@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api.dart';
 import '../../core/models.dart';
 import '../../core/providers.dart';
 import '../../core/theme.dart';
@@ -167,18 +168,11 @@ class _FeedCardView extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                '${card.displayName}${card.age == null ? '' : ', ${card.age}'}',
-                                style: theme.textTheme.headlineSmall?.copyWith(color: Colors.white),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: Tokens.spaceSm),
-                            VerificationBadge(status: card.verification),
-                          ],
+                        ProfileNameBadge(
+                          name: card.displayName,
+                          age: card.age,
+                          verification: card.verification,
+                          style: theme.textTheme.headlineSmall?.copyWith(color: Colors.white),
                         ),
                         if (card.profession != null)
                           Text(card.profession!, style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70)),
@@ -263,7 +257,7 @@ class _FeedCardView extends ConsumerWidget {
   /// Report and Block are separate actions (spec 1.2), so the sheet offers both:
   /// reporting sends it to the review queue, blocking also removes the profile.
   Future<void> _blockSheet(BuildContext context, WidgetRef ref) async {
-    const reasons = ['Inappropriate photos', 'Harassment', 'Fake profile', 'Spam or scam', 'Other'];
+    const reasons = [...kReportReasons, 'Other'];
 
     final choice = await showModalBottomSheet<({String reason, bool block})>(
       context: context,

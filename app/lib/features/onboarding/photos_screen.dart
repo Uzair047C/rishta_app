@@ -19,10 +19,7 @@ class PhotosScreen extends ConsumerStatefulWidget {
   ConsumerState<PhotosScreen> createState() => _PhotosScreenState();
 }
 
-class _PhotosScreenState extends ConsumerState<PhotosScreen> {
-  bool _busy = false;
-  String? _error;
-
+class _PhotosScreenState extends ConsumerState<PhotosScreen> with FormProgress {
   Future<void> _add({required bool primary}) async {
     final picked = await ImagePicker().pickImage(
       source: ImageSource.gallery,
@@ -32,11 +29,7 @@ class _PhotosScreenState extends ConsumerState<PhotosScreen> {
     );
     if (picked == null) return;
 
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
+    await progress(() async {
       final profile = ref.read(myProfileProvider).valueOrNull;
       final url = await Storage.upload(
         Storage.pathFor(profile?.userId ?? 'unknown', 'profiles'),
@@ -46,11 +39,7 @@ class _PhotosScreenState extends ConsumerState<PhotosScreen> {
       // The server re-opens verification when the primary photo changes, so the
       // caller must re-check status rather than assume the old verdict stands.
       ref.invalidate(verificationProvider);
-    } catch (e) {
-      if (mounted) setState(() => _error = messageFor(e));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    });
   }
 
   @override
@@ -92,7 +81,7 @@ class _PhotosScreenState extends ConsumerState<PhotosScreen> {
                     ),
                   if (photos.length < 6)
                     _AddTile(
-                      busy: _busy,
+                      busy: busy,
                       label: photos.isEmpty ? 'Add photo' : 'Add another',
                       onTap: () => _add(primary: photos.isEmpty),
                     ),
@@ -103,16 +92,13 @@ class _PhotosScreenState extends ConsumerState<PhotosScreen> {
               if (!enough && photos.isNotEmpty)
                 const Text('Something went wrong saving that photo.'),
 
-              if (_error != null) ...[
-                Semantics(
-                  liveRegion: true,
-                  child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
-                ),
+              if (error != null) ...[
+                ErrorText(error!),
                 const SizedBox(height: Tokens.spaceMd),
               ],
 
               FilledButton(
-                onPressed: enough && !_busy ? widget.onNext : null,
+                onPressed: enough && !busy ? widget.onNext : null,
                 child: const Text('Continue'),
               ),
               const SizedBox(height: Tokens.spaceLg),
