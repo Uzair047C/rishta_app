@@ -35,12 +35,12 @@ Future<void> main() async {
       await Firebase.initializeApp(
         options: const FirebaseOptions(
             apiKey: "AIzaSyBysS0XXNnvts4KzFivHYQySfvbgEF297A",
-  authDomain: "rishta-app-316aa.firebaseapp.com",
-  projectId: "rishta-app-316aa",
-  storageBucket: "rishta-app-316aa.firebasestorage.app",
-  messagingSenderId: "550519095432",
-  appId: "1:550519095432:web:c193899b59a9f10b7a5f3d",
-  measurementId: "G-ZGDLPSL2P9"
+            authDomain: "rishta-app-316aa.firebaseapp.com",
+            projectId: "rishta-app-316aa",
+            storageBucket: "rishta-app-316aa.firebasestorage.app",
+            messagingSenderId: "550519095432",
+            appId: "1:550519095432:web:c193899b59a9f10b7a5f3d",
+            measurementId: "G-ZGDLPSL2P9"
         ),
       );
     } else {
