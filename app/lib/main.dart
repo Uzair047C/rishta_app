@@ -34,10 +34,13 @@ Future<void> main() async {
     if (kIsWeb) {
       await Firebase.initializeApp(
         options: const FirebaseOptions(
-          apiKey: 'AIzaSyFakeKeyForLocalLivePreview',
-          appId: '1:1234567890:web:abcdef123456',
-          messagingSenderId: '1234567890',
-          projectId: 'rishta-matchmaking',
+            apiKey: "AIzaSyBysS0XXNnvts4KzFivHYQySfvbgEF297A",
+  authDomain: "rishta-app-316aa.firebaseapp.com",
+  projectId: "rishta-app-316aa",
+  storageBucket: "rishta-app-316aa.firebasestorage.app",
+  messagingSenderId: "550519095432",
+  appId: "1:550519095432:web:c193899b59a9f10b7a5f3d",
+  measurementId: "G-ZGDLPSL2P9"
         ),
       );
     } else {
