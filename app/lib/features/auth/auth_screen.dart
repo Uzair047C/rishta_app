@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,9 +24,9 @@ const _tanCard = Tokens.tanCard;
 class _Country {
   const _Country({required this.name, required this.code, required this.dialCode, required this.flag});
   final String name;
-  final String code; // ISO 3166-1 alpha-2
-  final String dialCode; // e.g. "+92"
-  final String flag; // emoji flag
+  final String code;
+  final String dialCode;
+  final String flag;
 
   String get displayName => '$flag  $name ($dialCode)';
 }
@@ -154,7 +155,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
       await fn();
     } on FirebaseAuthException catch (e) {
       if (mounted) setState(() => _error = _label(e));
-    } catch (e) {
+    } catch (e, st) {
+      // Log full error for debugging
+      debugPrint('[Auth] Error: $e\n$st');
       if (mounted) setState(() => _error = _generic(e));
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -172,6 +175,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
         'invalid-phone-number' => 'Enter a valid phone number with the country code.',
         'too-many-requests' => 'Too many attempts — please wait a few minutes.',
         'network-request-failed' => 'No internet connection.',
+        'missing-verification-id' => 'Verification session expired. Request a new code.',
+        'session-expired' => 'Verification session expired. Request a new code.',
+        'quota-exceeded' => 'SMS quota exceeded. Try again later.',
+        'captcha-check-failed' => 'reCAPTCHA verification failed. Try again.',
         _ => e.message ?? 'Something went wrong.',
       };
 
@@ -183,11 +190,18 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
     if (s.contains('not configured') || s.contains('PlatformException')) {
       return 'Auth service not configured for this environment.';
     }
+    if (s.contains('recaptcha') || s.contains('RECAPTCHA')) {
+      return 'Security check failed. Please try again.';
+    }
     return 'Sign-in failed — please try again.';
   }
 
   // ─── Google Sign-In ─────────────────────────────────────────────────────
   Future<void> _signInWithGoogle() => _run(() async {
+        if (kIsWeb) {
+          await _auth.signInWithPopup(GoogleAuthProvider());
+          return;
+        }
         final googleUser = await GoogleSignIn().signIn();
         if (googleUser == null) return; // user cancelled
         final ga = await googleUser.authentication;
@@ -215,10 +229,23 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
         final raw = _phoneCtrl.text.trim().replaceAll(RegExp(r'\s+'), '');
         if (raw.isEmpty) throw Exception('Enter a phone number first.');
         final full = '${_country.dialCode}$raw';
+
+        // Validate phone number format (basic E.164 check)
+        if (!RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(full)) {
+          throw Exception('Invalid phone number format. Include country code.');
+        }
+
         await _auth.verifyPhoneNumber(
           phoneNumber: full,
           forceResendingToken: _resendToken,
-          verificationCompleted: (cred) => _auth.signInWithCredential(cred),
+          verificationCompleted: (cred) async {
+            // Auto-verification on Android
+            try {
+              await _auth.signInWithCredential(cred);
+            } catch (_) {
+              // Ignore auto-verification failures
+            }
+          },
           verificationFailed: (e) {
             if (mounted) {
               setState(() => _error = _label(e));
@@ -235,7 +262,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
             }
           },
           codeAutoRetrievalTimeout: (_) {},
-          timeout: const Duration(seconds: 60),
+          timeout: const Duration(seconds: 120), // Increased from 60s
         );
       });
 
@@ -244,6 +271,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
         final id = _verificationId;
         final code = _otpCtrl.text.trim();
         if (id == null || code.isEmpty) throw Exception('Enter the 6-digit code sent to your phone.');
+        if (code.length != 6) throw Exception('Code must be 6 digits.');
         final cred = PhoneAuthProvider.credential(verificationId: id, smsCode: code);
         await _auth.signInWithCredential(cred);
       });
