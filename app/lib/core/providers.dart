@@ -1,4 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 import 'api.dart';
 import 'models.dart';
@@ -134,7 +137,12 @@ final interestCategoriesProvider = FutureProvider<List<TagCategory>>((ref) async
     return categoriesJson.map((categoryJson) {
       final name = Json.str(categoryJson, 'name');
       final tagsJson = Json.children(categoryJson, 'tags', Tag.fromJson);
-      return TagCategory(name: name, tags: tagsJson);
+      final tags = tagsJson.map((tag) => TagItem(
+            id: tag.id,
+            label: tag.label,
+            icon: null,
+          )).toList();
+      return TagCategory(name: name, tags: tags);
     }).toList();
   });
 });
@@ -148,7 +156,12 @@ final personalityCategoriesProvider = FutureProvider<List<TagCategory>>((ref) as
     return categoriesJson.map((categoryJson) {
       final name = Json.str(categoryJson, 'name');
       final tagsJson = Json.children(categoryJson, 'tags', Tag.fromJson);
-      return TagCategory(name: name, tags: tagsJson);
+      final tags = tagsJson.map((tag) => TagItem(
+            id: tag.id,
+            label: tag.label,
+            icon: null,
+          )).toList();
+      return TagCategory(name: name, tags: tags);
     }).toList();
   });
 });
@@ -298,3 +311,12 @@ class NotificationPrefsNotifier extends RemoteAsync<NotificationPrefs> {
     state = AsyncValue.data(confirmed);
   }
 }
+
+/// ------------------------------------------------------ subscription
+
+final subscriptionProvider = FutureProvider<Subscription>((ref) async {
+  final api = ref.watch(apiProvider);
+  final user = ref.read(firebaseAuthProvider).currentUser;
+  if (user == null) throw Exception('No authenticated user');
+  return api.get('/subscription', (j) => Subscription.fromJson(j as Map<String, dynamic>));
+});

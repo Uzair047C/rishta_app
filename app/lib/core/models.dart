@@ -1,6 +1,8 @@
 /// Shared JSON coercion. One place that knows how to read a field defensively,
 /// so no model repeats null-handling and a backend type change surfaces here
 /// rather than in twelve `fromJson` bodies.
+import 'package:flutter/material.dart';
+
 abstract final class Json {
   static String str(Map<String, dynamic> j, String k, [String fallback = '']) =>
       j[k] as String? ?? fallback;
@@ -298,3 +300,25 @@ class LikeResult {
         likesRemainingToday: Json.intg(j, 'likesRemainingToday'),
       );
 }
+
+/// Category of tags for grouped display.
+class TagCategory {
+  const TagCategory({required this.name, required this.tags});
+  final String name;
+  final List<TagItem> tags;
+}
+
+/// Individual tag item.
+class TagItem {
+  const TagItem({required this.id, required this.label, this.icon});
+  final dynamic id;
+  final String label;
+  final IconData? icon;
+
+  factory TagItem.fromJson(Map<String, dynamic> j) => TagItem(
+        id: j['id'],
+        label: j['label'] as String,
+        icon: j['icon'] != null ? IconData(j['icon'] as int, fontFamily: 'MaterialIcons') : null,
+      );
+}
+
