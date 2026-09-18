@@ -1,4 +1,3 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api.dart';
@@ -126,6 +125,34 @@ final tagsProvider = FutureProvider<({List<Tag> interests, List<Tag> languages})
   });
 });
 
+/// Interest categories for the onboarding flow.
+final interestCategoriesProvider = FutureProvider<List<TagCategory>>((ref) async {
+  final api = ref.watch(apiProvider);
+  return api.get('/interest-categories', (j) {
+    final map = j as Map<String, dynamic>;
+    final categoriesJson = Json.children(map, 'categories', (j) => j as Map<String, dynamic>);
+    return categoriesJson.map((categoryJson) {
+      final name = Json.str(categoryJson, 'name');
+      final tagsJson = Json.children(categoryJson, 'tags', Tag.fromJson);
+      return TagCategory(name: name, tags: tagsJson);
+    }).toList();
+  });
+});
+
+/// Personality categories for the onboarding flow.
+final personalityCategoriesProvider = FutureProvider<List<TagCategory>>((ref) async {
+  final api = ref.watch(apiProvider);
+  return api.get('/personality-categories', (j) {
+    final map = j as Map<String, dynamic>;
+    final categoriesJson = Json.children(map, 'categories', (j) => j as Map<String, dynamic>);
+    return categoriesJson.map((categoryJson) {
+      final name = Json.str(categoryJson, 'name');
+      final tagsJson = Json.children(categoryJson, 'tags', Tag.fromJson);
+      return TagCategory(name: name, tags: tagsJson);
+    }).toList();
+  });
+});
+
 /// ------------------------------------------------------- verification
 
 final verificationProvider =
@@ -248,18 +275,7 @@ class MatchesNotifier extends RemoteAsync<List<MatchSummary>> {
   }
 }
 
-/// ------------------------------------------------------ subscription
-
-final subscriptionProvider =
-    AsyncNotifierProvider<SubscriptionNotifier, Subscription>(SubscriptionNotifier.new);
-
-class SubscriptionNotifier extends RemoteAsync<Subscription> {
-  @override
-  Future<Subscription> fetch(Api api) =>
-      api.get('/subscription/status', (j) => Subscription.fromJson(j as Map<String, dynamic>));
-}
-
-/// ----------------------------------------------------- notifications
+/// ----------------------------------------------------- notification
 
 final notificationPrefsProvider =
     AsyncNotifierProvider<NotificationPrefsNotifier, NotificationPrefs>(

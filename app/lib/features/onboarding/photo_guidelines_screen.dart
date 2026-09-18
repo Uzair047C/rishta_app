@@ -22,8 +22,6 @@ class PhotoGuidelinesScreen extends StatelessWidget {
   static const _doItems = [
     _GuidelineItem('Only show yourself', Icons.person_outline_rounded, true),
     _GuidelineItem('Clear face', Icons.face_outlined, true),
-    _GuidelineItem('Good lighting', Icons.wb_sunny_outlined, true),
-    _GuidelineItem('Recent photo', Icons.event_outlined, true),
   ];
 
   static const _dontItems = [

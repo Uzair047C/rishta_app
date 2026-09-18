@@ -9,7 +9,7 @@ import '../../core/storage.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 
-/// Photo step. Spec 1.2: minimum one photo, three to six recommended.
+/// Photo step. Spec 1.4: minimum 3 photos required to continue.
 class PhotosScreen extends ConsumerStatefulWidget {
   const PhotosScreen({super.key, required this.onNext});
 
@@ -45,24 +45,23 @@ class _PhotosScreenState extends ConsumerState<PhotosScreen> with FormProgress {
   @override
   Widget build(BuildContext context) {
     final profile = ref.watch(myProfileProvider);
+    final gender = profile.valueOrNull?.gender ?? '';
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Your photos')),
+      appBar: AppBar(title: const Text('Add your profile photos')),
       body: AsyncView(
         value: profile,
         onRetry: () => ref.invalidate(myProfileProvider),
         builder: (data) {
           final photos = data.photos;
-          final enough = photos.isNotEmpty;
+          final ready = photos.length >= 3;
 
           return ListView(
             padding: const EdgeInsets.all(Tokens.spaceMd),
             children: [
-              Text(
-                enough
-                    ? 'Add a few more so people get a sense of you.'
-                    : 'Add at least one photo to continue.',
-                style: Theme.of(context).textTheme.bodyMedium,
+              const Text(
+                'You need to upload at least 3 photos to continue completing your profile. You can change them later',
+                style: TextStyle(color: Colors.brown.shade500),
               ),
               const SizedBox(height: Tokens.spaceMd),
 
@@ -78,6 +77,7 @@ class _PhotosScreenState extends ConsumerState<PhotosScreen> with FormProgress {
                       url: photos[i],
                       isPrimary: i == 0,
                       label: i == 0 ? 'Primary photo' : 'Photo ${i + 1}',
+                      gender: i == 0 ? gender : null,
                     ),
                   if (photos.length < 6)
                     _AddTile(
@@ -89,17 +89,19 @@ class _PhotosScreenState extends ConsumerState<PhotosScreen> with FormProgress {
               ),
 
               const SizedBox(height: Tokens.spaceLg),
-              if (!enough && photos.isNotEmpty)
-                const Text('Something went wrong saving that photo.'),
-
               if (error != null) ...[
                 ErrorText(error!),
                 const SizedBox(height: Tokens.spaceMd),
               ],
 
               FilledButton(
-                onPressed: enough && !busy ? widget.onNext : null,
-                child: const Text('Continue'),
+                onPressed: ready && !busy ? widget.onNext : null,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(52),
+                  backgroundColor: Tokens.pink,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Tokens.radiusMd)),
+                ),
+                child: const Text('Add photos', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
               ),
               const SizedBox(height: Tokens.spaceLg),
             ],
@@ -111,11 +113,17 @@ class _PhotosScreenState extends ConsumerState<PhotosScreen> with FormProgress {
 }
 
 class _PhotoTile extends StatelessWidget {
-  const _PhotoTile({required this.url, required this.isPrimary, required this.label});
+  const _PhotoTile({
+    required this.url,
+    required this.isPrimary,
+    required this.label,
+    this.gender,
+  });
 
   final String url;
   final bool isPrimary;
   final String label;
+  final String? gender;
 
   @override
   Widget build(BuildContext context) => Stack(
@@ -125,26 +133,17 @@ class _PhotoTile extends StatelessWidget {
             borderRadius: const BorderRadius.all(Radius.circular(Tokens.radiusSm)),
             child: ProfilePhoto(url: url, label: label),
           ),
-          if (isPrimary)
+          if (isPrimary && gender != null)
             Positioned(
-              left: 4,
-              top: 4,
-              child: Semantics(
-                label: 'This is your primary photo',
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
-                    borderRadius: const BorderRadius.all(Radius.circular(Tokens.radiusSm)),
-                  ),
-                  child: Text(
-                    'Main',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: Theme.of(context).colorScheme.onPrimary,
-                    ),
-                  ),
+              bottom: Tokens.spaceXs,
+              right: Tokens.spaceXs,
+              child: Chip(
+                label: Text(
+                  gender!,
+                  style: const TextStyle(color: Colors.white, fontSize: 10),
                 ),
+                backgroundColor: Tokens.pink,
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               ),
             ),
         ],
