@@ -1,10 +1,12 @@
 /** Row shapes for the tables the API reads. Mirrors sql/schema.sql. */
 
 export type Gender = 'male' | 'female' | 'other';
-export type MaritalStatus = 'never_married' | 'divorced' | 'widowed';
+export type MaritalStatus = 'never_married' | 'divorced' | 'separated' | 'annulled' | 'widowed' | 'married';
 export type VerificationStatus = 'pending' | 'verified' | 'failed';
 export type SubscriptionStatus = 'active' | 'expired' | 'cancelled' | 'inactive';
 export type FlagStatus = 'open' | 'reviewing' | 'actioned' | 'dismissed';
+export type Sect = 'sunni' | 'shia' | 'other' | 'prefer_not_to_say';
+export type ReligiousPracticeLevel = 'strictly' | 'actively' | 'occasionally' | 'not_practising';
 
 export interface UserRow {
   id: string;
@@ -27,7 +29,16 @@ export interface ProfileRow {
   bio: string;
   education: string | null;
   profession: string | null;
+  sect: Sect | null;
+  nationality: string | null;
+  ethnicity: string | null;
   marital_status: MaritalStatus | null;
+  relationship_timeline_intent: string | null;
+  marriage_timeline_intent: string | null;
+  religious_practice_level: ReligiousPracticeLevel | null;
+  drinks_alcohol: boolean | null;
+  would_move_abroad: boolean | null;
+  personality_traits: string[];
   photos: string[];
   bio_flagged: boolean;
   verification_status: VerificationStatus;

@@ -14,6 +14,7 @@ abstract final class Tokens {
   static const tanBase = Color(0xFFF5E6D3);
   static const tanDark = Color(0xFFEDD5B8);
   static const tanCard = Color(0xFFFDF6EE);
+  static const pink = Color(0xFFE50050); // Muzz iconic red-pink brand color
   static const pinkAccent = Color(0xFFD4748C);
   static const pinkLight = Color(0xFFF2B8C6);
   static const pinkDeep = Color(0xFFB05570);

@@ -55,21 +55,30 @@ CREATE TRIGGER users_min_age
 -- ------------------------------------------------------------- profiles
 
 CREATE TABLE profiles (
-  user_id             uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  user_id                     uuid PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   -- Spec 1.2 lists Name as a profile-creation field but the 2.2 data model has
   -- no column for it; added here rather than dropping the field.
-  name                text,
-  bio                 text NOT NULL DEFAULT '',
-  education           text,
-  profession          text,
-  marital_status      text CHECK (marital_status IN ('never_married', 'divorced', 'widowed')),
+  name                        text,
+  bio                         text NOT NULL DEFAULT '',
+  education                   text,
+  profession                  text,
+  sect                        text CHECK (sect IN ('sunni', 'shia', 'other', 'prefer_not_to_say')),
+  nationality                 text,
+  ethnicity                   text,
+  marital_status              text CHECK (marital_status IN ('never_married', 'divorced', 'separated', 'annulled', 'widowed', 'married')),
+  relationship_timeline_intent text,
+  marriage_timeline_intent    text,
+  religious_practice_level    text CHECK (religious_practice_level IN ('strictly', 'actively', 'occasionally', 'not_practising')),
+  drinks_alcohol              boolean,
+  would_move_abroad           boolean,
+  personality_traits          text[] NOT NULL DEFAULT '{}',
   -- photos[1] is the PRIMARY photo. Array over a join table: the spec models it
   -- as photos[], and nothing queries an individual non-primary photo.
-  photos              text[] NOT NULL DEFAULT '{}',
-  bio_flagged         boolean NOT NULL DEFAULT false,
-  verification_status text NOT NULL DEFAULT 'pending'
-                        CHECK (verification_status IN ('pending', 'verified', 'failed')),
-  updated_at          timestamptz NOT NULL DEFAULT now()
+  photos                      text[] NOT NULL DEFAULT '{}',
+  bio_flagged                 boolean NOT NULL DEFAULT false,
+  verification_status         text NOT NULL DEFAULT 'pending'
+                                CHECK (verification_status IN ('pending', 'verified', 'failed')),
+  updated_at                  timestamptz NOT NULL DEFAULT now()
 );
 
 -- Spec 2.3: changing the primary photo re-opens verification. A trigger rather

@@ -19,7 +19,9 @@ const auth_1 = require("../auth/auth");
 const users_service_1 = require("../users/users.service");
 const profile_service_1 = require("./profile.service");
 const GENDERS = ['male', 'female', 'other'];
-const MARITAL = ['never_married', 'divorced', 'widowed'];
+const MARITAL = ['never_married', 'divorced', 'separated', 'annulled', 'widowed', 'married'];
+const SECTS = ['sunni', 'shia', 'other', 'prefer_not_to_say'];
+const PRACTICE = ['strictly', 'actively', 'occasionally', 'not_practising'];
 class ProfileDto {
     name;
     gender;
@@ -31,22 +33,34 @@ class ProfileDto {
     bio;
     education;
     profession;
+    sect;
+    nationality;
+    ethnicity;
     maritalStatus;
+    relationshipTimelineIntent;
+    marriageTimelineIntent;
+    religiousPracticeLevel;
+    drinksAlcohol;
+    wouldMoveAbroad;
+    personalityTraits;
     /** Fixed tag ids from GET /profile/interests — no free-text interests. */
     interestIds;
     languageIds;
 }
 __decorate([
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.MinLength)(1),
     (0, class_validator_1.MaxLength)(80),
     __metadata("design:type", String)
 ], ProfileDto.prototype, "name", void 0);
 __decorate([
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsIn)(GENDERS),
     __metadata("design:type", String)
 ], ProfileDto.prototype, "gender", void 0);
 __decorate([
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsDateString)(),
     __metadata("design:type", String)
 ], ProfileDto.prototype, "dob", void 0);
@@ -90,9 +104,59 @@ __decorate([
 ], ProfileDto.prototype, "profession", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsIn)(SECTS),
+    __metadata("design:type", String)
+], ProfileDto.prototype, "sect", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(120),
+    __metadata("design:type", String)
+], ProfileDto.prototype, "nationality", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(120),
+    __metadata("design:type", String)
+], ProfileDto.prototype, "ethnicity", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsIn)(MARITAL),
     __metadata("design:type", String)
 ], ProfileDto.prototype, "maritalStatus", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(60),
+    __metadata("design:type", String)
+], ProfileDto.prototype, "relationshipTimelineIntent", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MaxLength)(60),
+    __metadata("design:type", String)
+], ProfileDto.prototype, "marriageTimelineIntent", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsIn)(PRACTICE),
+    __metadata("design:type", String)
+], ProfileDto.prototype, "religiousPracticeLevel", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], ProfileDto.prototype, "drinksAlcohol", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], ProfileDto.prototype, "wouldMoveAbroad", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.IsString)({ each: true }),
+    __metadata("design:type", Array)
+], ProfileDto.prototype, "personalityTraits", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsArray)(),
@@ -118,6 +182,14 @@ __decorate([
     (0, class_validator_1.IsBoolean)(),
     __metadata("design:type", Boolean)
 ], PhotoDto.prototype, "makePrimary", void 0);
+class SetPhotosDto {
+    urls;
+}
+__decorate([
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.IsUrl)({ require_tld: false }, { each: true }),
+    __metadata("design:type", Array)
+], SetPhotosDto.prototype, "urls", void 0);
 let ProfileController = class ProfileController {
     profiles;
     users;
@@ -131,7 +203,20 @@ let ProfileController = class ProfileController {
             this.profiles.interests(),
             this.profiles.languages(),
         ]);
-        return { interests, languages };
+        const categorized = this.profiles.interestsCategorized();
+        return { interests, languages, categorized };
+    }
+    professions() {
+        return this.profiles.professions();
+    }
+    nationalities() {
+        return this.profiles.nationalities();
+    }
+    ethnicities() {
+        return this.profiles.ethnicities();
+    }
+    personalityTraits() {
+        return this.profiles.personalityTraits();
     }
     async me(principal) {
         const user = await this.users.require(principal.uid);
@@ -145,14 +230,47 @@ let ProfileController = class ProfileController {
         const user = await this.users.require(principal.uid);
         return this.profiles.addPhoto(user.id, dto.url, dto.makePrimary);
     }
+    async setPhotos(principal, dto) {
+        const user = await this.users.require(principal.uid);
+        return this.profiles.setPhotos(user.id, dto.urls);
+    }
 };
 exports.ProfileController = ProfileController;
 __decorate([
+    (0, auth_1.Public)(),
     (0, common_1.Get)('interests'),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", Promise)
 ], ProfileController.prototype, "tags", null);
+__decorate([
+    (0, auth_1.Public)(),
+    (0, common_1.Get)('professions'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], ProfileController.prototype, "professions", null);
+__decorate([
+    (0, auth_1.Public)(),
+    (0, common_1.Get)('nationalities'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], ProfileController.prototype, "nationalities", null);
+__decorate([
+    (0, auth_1.Public)(),
+    (0, common_1.Get)('ethnicities'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], ProfileController.prototype, "ethnicities", null);
+__decorate([
+    (0, auth_1.Public)(),
+    (0, common_1.Get)('personality-traits'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], ProfileController.prototype, "personalityTraits", null);
 __decorate([
     (0, common_1.Get)(),
     __param(0, (0, auth_1.Auth)()),
@@ -176,6 +294,14 @@ __decorate([
     __metadata("design:paramtypes", [Object, PhotoDto]),
     __metadata("design:returntype", Promise)
 ], ProfileController.prototype, "addPhoto", null);
+__decorate([
+    (0, common_1.Post)('photos'),
+    __param(0, (0, auth_1.Auth)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, SetPhotosDto]),
+    __metadata("design:returntype", Promise)
+], ProfileController.prototype, "setPhotos", null);
 exports.ProfileController = ProfileController = __decorate([
     (0, common_1.Controller)('profile'),
     __metadata("design:paramtypes", [profile_service_1.ProfileService,
