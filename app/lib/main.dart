@@ -27,10 +27,12 @@ Future<void> _onBackgroundMessage(RemoteMessage message) async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  debugPrint('Main: Starting Firebase initialization');
 
   // Safely initialize Firebase with fallback for Desktop/Web live previews
   try {
     if (kIsWeb) {
+      debugPrint('Main: Initializing Firebase for web');
       await Firebase.initializeApp(
         options: const FirebaseOptions(
             apiKey: "AIzaSyBysS0XXNnvts4KzFivHYQySfvbgEF297A",
@@ -42,16 +44,23 @@ Future<void> main() async {
             measurementId: "G-ZGDLPSL2P9"
         ),
       );
+      debugPrint('Main: Firebase initialized for web');
     } else {
+      debugPrint('Main: Initializing Firebase for native');
       await Firebase.initializeApp();
+      debugPrint('Main: Firebase initialized for native');
     }
+    debugPrint('Main: Setting up background message handler');
     FirebaseMessaging.onBackgroundMessage(_onBackgroundMessage);
+    debugPrint('Main: Background message handler set up');
   } catch (e) {
     if (kDebugMode) {
       debugPrint('[Firebase] Live preview mode without native config: $e');
     }
+    debugPrint('Main: Firebase initialization error: $e');
   }
 
+  debugPrint('Main: Running app');
   runApp(const ProviderScope(child: RishtaApp()));
 }
 
@@ -69,18 +78,7 @@ class RishtaApp extends ConsumerWidget {
       darkTheme: AppTheme.dark(),
       themeMode: themeMode,
       builder: (context, child) {
-        final isDark = themeMode == ThemeMode.dark ||
-            (themeMode == ThemeMode.system &&
-                MediaQuery.platformBrightnessOf(context) == Brightness.dark);
-
-        return DevPreviewOverlay(
-          isDarkMode: isDark,
-          onToggleTheme: () {
-            ref.read(themeModeProvider.notifier).state =
-                isDark ? ThemeMode.light : ThemeMode.dark;
-          },
-          child: child ?? const SizedBox.shrink(),
-        );
+        return child ?? const SizedBox.shrink();
       },
       home: const AppGate(),
     );
