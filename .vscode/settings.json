@@ -27,5 +27,6 @@
   "editor.formatOnSave": true,
   "editor.codeActionsOnSave": {
     "source.fixAll": "explicit"
-  }
+  },
+  "cmake.sourceDirectory": "a:/muzz/app/windows"
 }

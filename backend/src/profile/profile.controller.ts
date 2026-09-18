@@ -78,8 +78,22 @@ export class ProfileController {
       this.profiles.interests(),
       this.profiles.languages(),
     ]);
-    const categorized = this.profiles.interestsCategorized();
+    const categorized = await this.profiles.interestsCategorized();
     return { interests, languages, categorized };
+  }
+
+  @Public()
+  @Get('interest-categories')
+  async interestCategories() {
+    const categories = await this.profiles.interestsCategorized();
+    return { categories };
+  }
+
+  @Public()
+  @Get('personality-categories')
+  personalityTraitsCategorized() {
+    const categories = this.profiles.personalityTraitsCategorized();
+    return { categories };
   }
 
   @Public()

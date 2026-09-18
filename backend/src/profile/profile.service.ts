@@ -150,7 +150,7 @@ export class ProfileService {
       { name: 'Lebanese', code: 'LB', flag: '🇱🇧' },
       { name: 'Libyan', code: 'LY', flag: '🇱🇾' },
       { name: 'Malaysian', code: 'MY', flag: '🇲🇾' },
-      { name: 'Moroccan', code: 'MA', flag: '🇲🇦' },
+      { name: 'Morocan', code: 'MA', flag: '🇲🇦' },
       { name: 'Nigerian', code: 'NG', flag: '🇳🇬' },
       { name: 'Norwegian', code: 'NO', flag: '🇳🇴' },
       { name: 'Omani', code: 'OM', flag: '🇴🇲' },
@@ -291,10 +291,19 @@ export class ProfileService {
     return { traits, mbti };
   }
 
-  interestsCategorized(): { category: string; tags: string[] }[] {
-    return [
+  // Updated to return categories with tag objects {id, label}
+  async interestsCategorized(): Promise<{ name: string; tags: { id: number; label: string }[] }[]> {
+    // Get all interests to map label -> id
+    const interests = await this.interests();
+    const interestMap = new Map<string, number>();
+    for (const interest of interests) {
+      interestMap.set(interest.label, interest.id);
+    }
+
+    // Hardcoded categories as before, but now map each tag label to {id, label}
+    const categories = [
       {
-        category: 'Hobbies & Arts',
+        name: 'Hobbies & Arts',
         tags: [
           'Acting',
           'Anime',
@@ -319,11 +328,11 @@ export class ProfileService {
         ],
       },
       {
-        category: 'Community',
+        name: 'Community',
         tags: ['Activism', 'Family time', 'Politics', 'Spending time with Friends', 'Volunteering'],
       },
       {
-        category: 'Food & Drink',
+        name: 'Food & Drink',
         tags: [
           'Baking',
           'Bubble tea',
@@ -337,11 +346,11 @@ export class ProfileService {
         ],
       },
       {
-        category: 'Outdoors',
+        name: 'Outdoors',
         tags: ['Bird watching', 'Camping', 'Fishing'],
       },
       {
-        category: 'Sport',
+        name: 'Sport',
         tags: [
           'American football',
           'Archery',
@@ -376,10 +385,88 @@ export class ProfileService {
         ],
       },
       {
-        category: 'Technology',
+        name: 'Technology',
         tags: ['Blogging', 'Coding', 'Content creation', 'Gaming'],
       },
     ];
+
+    // Map each tag label to {id, label} using the interestMap
+    return categories.map(({ name, tags }) => ({
+      name,
+      tags: tags
+        .map(label => {
+          const id = interestMap.get(label);
+          // If label not found in DB, we skip it (or could use a fallback, but assume all exist)
+          return id !== undefined ? { id, label } : null;
+        })
+        .filter((tag): tag is { id: number; label: string } => tag !== null),
+    }));
+  }
+
+  // New method for categorized personality traits
+  personalityTraitsCategorized(): { name: string; tags: { id: string; label: string }[] }[] {
+    // Group traits into categories (arbitrary grouping for demonstration)
+    const categories = [
+      {
+        name: 'Social & Communication',
+        tags: [
+          'Active Listener',
+          'Affectionate',
+          'Charismatic',
+          'Cheerful',
+          'Empathetic',
+          'Extrovert',
+          'Generous',
+          'Genuine',
+          'Good with Kids',
+          'Open-minded',
+          'Outgoing',
+          'Patient',
+          'Playful',
+          'Positive',
+          'Respectful',
+          'Romantic',
+          'Self-aware',
+          'Shy',
+          'Spontaneous',
+          'Thoughtful',
+        ],
+      },
+      {
+        name: 'Ambition & Drive',
+        tags: [
+          'Adventurous',
+          'Ambitious',
+          'Career-driven',
+          'Competitive',
+          'Confident',
+          'Creative',
+          'Entrepreneurial',
+          'Intelligent',
+          'Liberal',
+          'Nerdy',
+        ],
+      },
+      {
+        name: 'Lifestyle & Hobbies',
+        tags: [
+          'Animal Lover',
+          'Bookworm',
+          'Brunch Lover',
+          'Calm',
+          'Carefree',
+          'Cultural',
+          'Family-oriented',
+          'Religious',
+        ],
+      },
+    ];
+
+    // Use the label as the id (string) for each trait
+    return categories.map(({ name, tags }) => ({
+      name,
+      tags: tags.map(label => ({ id: label, label })),
+    }));
   }
 
   async upsert(user: UserRow, dto: ProfileInput) {
@@ -568,4 +655,3 @@ export class ProfileService {
     );
   }
 }
-
