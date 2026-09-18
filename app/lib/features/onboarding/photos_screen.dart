@@ -1,6 +1,9 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -28,6 +31,32 @@ class _PhotosScreenState extends ConsumerState<PhotosScreen> with FormProgress {
       imageQuality: 85,
     );
     if (picked == null) return;
+
+    // Client-side resolution check
+    final bytes = await File(picked.path).readAsBytes();
+    final codec = await ui.instantiateImageCodec(bytes);
+    final frame = await codec.getNextFrame();
+    final width = frame.image.width;
+    final height = frame.image.height;
+
+    if (width < 480 || height < 480) {
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          showDialog(
+            context: context,
+            builder: (_) => AlertDialog(
+              backgroundColor: Tokens.tanCard,
+              title: Text('Something went wrong', style: TextStyle(color: Tokens.pinkDeep)),
+              content: Text('Please provide a larger photo', style: TextStyle(color: Tokens.pinkDeep)),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK', style: TextStyle(color: Tokens.pink))),
+              ],
+            ),
+          );
+        });
+      }
+      return;
+    }
 
     await progress(() async {
       final profile = ref.read(myProfileProvider).valueOrNull;
@@ -59,7 +88,7 @@ class _PhotosScreenState extends ConsumerState<PhotosScreen> with FormProgress {
           return ListView(
             padding: const EdgeInsets.all(Tokens.spaceMd),
             children: [
-              const Text(
+              Text(
                 'You need to upload at least 3 photos to continue completing your profile. You can change them later',
                 style: TextStyle(color: Colors.brown.shade500),
               ),
