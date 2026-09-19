@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../simple_auto_advance.dart';
-import '../../core/theme.dart';
+import 'simple_auto_advance.dart';
 
 /// Move abroad for marriage screen - Step 9
 class MoveAbroadScreen extends StatelessWidget {

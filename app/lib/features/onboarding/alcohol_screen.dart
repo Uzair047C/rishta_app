@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../simple_auto_advance.dart';
-import '../../core/theme.dart';
+import 'simple_auto_advance.dart';
 
 /// Alcohol consumption screen - Step 8
 class AlcoholScreen extends StatelessWidget {

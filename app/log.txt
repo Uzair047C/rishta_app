@@ -14,9 +14,11 @@ Debug service listening on ws://127.0.0.1:58861/CjCnOvRkxC8=/ws
 A Dart VM Service on Chrome is available at: http://127.0.0.1:58861/CjCnOvRkxC8=
 The Flutter DevTools debugger and profiler on Chrome is available at: http://127.0.0.1:58861/CjCnOvRkxC8=/devtools/?uri=ws://127.0.0.1:58861/CjCnOvRkxC8=/ws
 Starting application from main method in: org-dartlang-app:///web_entrypoint.dart.
-Main: Starting Firebase initialization
+Application finished.
+e initialization
 Main: Initializing Firebase for web
 Main: Firebase initialized for web
 Main: Setting up background message handler
 Main: Background message handler set up
 Main: Running app
+Application finished.

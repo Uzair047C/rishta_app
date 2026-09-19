@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/api.dart';
+import '../../core/providers.dart';
 import '../../core/theme.dart';
 import 'onboarding_scaffold.dart';
 
@@ -30,7 +30,7 @@ class SearchableSingleSelectScreen extends ConsumerStatefulWidget {
   final void Function(dynamic selected) onConfirm;
   final dynamic initialValue;
   final String Function(dynamic item)? itemLabel;
-  final Widget Function(dynamic item)? itemIcon;
+  final Widget? Function(dynamic item)? itemIcon;
   final bool isSkippable;
   final VoidCallback? onSkip;
   final int currentStep;
@@ -196,7 +196,9 @@ class _SearchableSingleSelectScreenState extends ConsumerState<SearchableSingleS
 
     return RadioListTile<dynamic>(
       value: item,
+      // ignore: deprecated_member_use
       groupValue: _selected,
+      // ignore: deprecated_member_use
       onChanged: (v) => _onItemTap(v!),
       title: Row(
         children: [

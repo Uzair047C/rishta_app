@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -77,7 +77,7 @@ class _PhotoGridScreenState extends ConsumerState<PhotoGridScreen> {
 
     if (width < _minDimension || height < _minDimension) {
       if (mounted) {
-        _showError('Photo too small. Minimum ${_minDimension}×${_minDimension}px. Yours: ${width}×${height}px');
+        _showError('Photo too small. Minimum $_minDimension×$_minDimension px. Yours: $width×$height px');
       }
       return;
     }
@@ -244,19 +244,17 @@ class _PhotoGridScreenState extends ConsumerState<PhotoGridScreen> {
 }
 
 class _PhotoSlot {
-  const _PhotoSlot({this.url, this.isRemote = false, this.file});
+  const _PhotoSlot({this.url, this.isRemote = false});
   final String? url;
   final bool isRemote;
-  final File? file;
 
-  const _PhotoSlot.empty() : url = null, isRemote = false, file = null;
+  const _PhotoSlot.empty() : url = null, isRemote = false;
 
-  bool get hasImage => url != null || file != null;
+  bool get hasImage => url != null;
 }
 
 class _PhotoTile extends StatelessWidget {
   const _PhotoTile({
-    super.key,
     required this.slot,
     required this.index,
     required this.isPrimary,
@@ -281,32 +279,25 @@ class _PhotoTile extends StatelessWidget {
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(Tokens.radiusSm),
-          child: slot.isRemote
-              ? Image.network(
-                  slot.url!,
-                  fit: BoxFit.cover,
-                  width: double.infinity,
-                  height: double.infinity,
-                  loadingBuilder: (context, child, progress) => progress == null
-                      ? child
-                      : Center(
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            value: progress.expectedTotalBytes != null ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes! : null,
-                            color: Tokens.pink,
-                          ),
-                        ),
-                  errorBuilder: (_, __, ___) => Container(
-                    color: scheme.surfaceContainerHighest,
-                    child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
+          child: Image.network(
+            slot.url!,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+            loadingBuilder: (context, child, progress) => progress == null
+                ? child
+                : Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      value: progress.expectedTotalBytes != null ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes! : null,
+                      color: Tokens.pink,
+                    ),
                   ),
-                )
-              : Image.file(
-                  slot.file!,
-                  fit: BoxFit.cover,
-                  width: double.infinity,
-                  height: double.infinity,
-                ),
+            errorBuilder: (_, __, ___) => Container(
+              color: scheme.surfaceContainerHighest,
+              child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
+            ),
+          ),
         ),
         if (isPrimary)
           Positioned(
@@ -347,7 +338,7 @@ class _PhotoTile extends StatelessWidget {
 }
 
 class _AddTile extends StatelessWidget {
-  const _AddTile({super.key, required this.busy, required this.label, required this.onTap});
+  const _AddTile({required this.busy, required this.label, required this.onTap});
 
   final bool busy;
   final String label;
@@ -387,7 +378,7 @@ class _AddTile extends StatelessWidget {
 }
 
 class _CircleButton extends StatelessWidget {
-  const _CircleButton({super.key, required this.icon, required this.onPressed, this.tooltip, this.color});
+  const _CircleButton({required this.icon, required this.onPressed, this.tooltip, this.color});
 
   final IconData icon;
   final VoidCallback? onPressed;

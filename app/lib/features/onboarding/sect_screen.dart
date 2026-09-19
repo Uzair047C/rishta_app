@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../simple_auto_advance.dart';
-import '../../core/theme.dart';
+import 'simple_auto_advance.dart';
 
 /// Sect selection screen - Step 1
 class SectScreen extends StatelessWidget {

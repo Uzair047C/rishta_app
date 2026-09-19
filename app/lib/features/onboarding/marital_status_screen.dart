@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../simple_auto_advance.dart';
-import '../../core/theme.dart';
+import 'simple_auto_advance.dart';
 
 /// Marital status selection screen - Step 5
 class MaritalStatusScreen extends StatelessWidget {

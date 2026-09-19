@@ -1,0 +1,107 @@
+[{
+	"resource": "/A:/muzz/app/lib/core/models.dart",
+	"owner": "dartAnalysisLSP",
+	"code": {
+		"value": "non_const_argument_for_const_parameter",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostics/non_const_argument_for_const_parameter",
+			"scheme": "https",
+			"authority": "dart.dev"
+		}
+	},
+	"severity": 4,
+	"message": "Argument 'codePoint' must be a constant.\nTry replacing the argument with a constant.",
+	"source": "dart",
+	"startLineNumber": 318,
+	"startColumn": 44,
+	"endLineNumber": 318,
+	"endColumn": 60,
+	"origin": "extHost1"
+},{
+	"resource": "/A:/muzz/app/lib/features/onboarding/nationality_screen.dart",
+	"owner": "dartAnalysisLSP",
+	"code": {
+		"value": "non_const_argument_for_const_parameter",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostics/non_const_argument_for_const_parameter",
+			"scheme": "https",
+			"authority": "dart.dev"
+		}
+	},
+	"severity": 4,
+	"message": "Argument 'codePoint' must be a constant.\nTry replacing the argument with a constant.",
+	"source": "dart",
+	"startLineNumber": 35,
+	"startColumn": 29,
+	"endLineNumber": 35,
+	"endColumn": 48,
+	"origin": "extHost1"
+},{
+	"resource": "/A:/muzz/app/lib/features/onboarding/bio_screen.dart",
+	"owner": "dartAnalysisLSP",
+	"code": {
+		"value": "prefer_final_fields",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostics/prefer_final_fields",
+			"scheme": "https",
+			"authority": "dart.dev"
+		}
+	},
+	"severity": 2,
+	"message": "The private field _busy could be 'final'.\nTry making the field 'final'.",
+	"source": "dart",
+	"startLineNumber": 31,
+	"startColumn": 8,
+	"endLineNumber": 31,
+	"endColumn": 21,
+	"origin": "extHost1"
+},{
+	"resource": "/A:/muzz/app/lib/features/onboarding/searchable_single_select.dart",
+	"owner": "dartAnalysisLSP",
+	"code": {
+		"value": "deprecated_member_use",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostics/deprecated_member_use",
+			"scheme": "https",
+			"authority": "dart.dev"
+		}
+	},
+	"severity": 2,
+	"message": "'groupValue' is deprecated and shouldn't be used. Use a RadioGroup ancestor to manage group value instead. This feature was deprecated after v3.32.0-0.0.pre.\nTry replacing the use of the deprecated member with the replacement.",
+	"source": "dart",
+	"startLineNumber": 199,
+	"startColumn": 7,
+	"endLineNumber": 199,
+	"endColumn": 17,
+	"tags": [
+		2
+	],
+	"origin": "extHost1"
+},{
+	"resource": "/A:/muzz/app/lib/features/onboarding/searchable_single_select.dart",
+	"owner": "dartAnalysisLSP",
+	"code": {
+		"value": "deprecated_member_use",
+		"target": {
+			"$mid": 1,
+			"path": "/diagnostics/deprecated_member_use",
+			"scheme": "https",
+			"authority": "dart.dev"
+		}
+	},
+	"severity": 2,
+	"message": "'onChanged' is deprecated and shouldn't be used. Use RadioGroup to handle value change instead. This feature was deprecated after v3.32.0-0.0.pre.\nTry replacing the use of the deprecated member with the replacement.",
+	"source": "dart",
+	"startLineNumber": 200,
+	"startColumn": 7,
+	"endLineNumber": 200,
+	"endColumn": 16,
+	"tags": [
+		2
+	],
+	"origin": "extHost1"
+}]

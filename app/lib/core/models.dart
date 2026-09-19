@@ -1,6 +1,3 @@
-/// Shared JSON coercion. One place that knows how to read a field defensively,
-/// so no model repeats null-handling and a backend type change surfaces here
-/// rather than in twelve `fromJson` bodies.
 import 'package:flutter/material.dart';
 
 abstract final class Json {
@@ -318,7 +315,8 @@ class TagItem {
   factory TagItem.fromJson(Map<String, dynamic> j) => TagItem(
         id: j['id'],
         label: j['label'] as String,
-        icon: j['icon'] != null ? IconData(j['icon'] as int, fontFamily: 'MaterialIcons') : null,
+        // ignore: non_const_argument_for_const_parameter
+        icon: j['icon'] != null ? IconData((j['icon'] as int), fontFamily: 'MaterialIcons', matchTextDirection: true) : null,
       );
 }
 

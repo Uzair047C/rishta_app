@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../card_single_select.dart';
-import '../../core/theme.dart';
+import 'card_single_select.dart';
 
 /// Religious practice level screen - Step 7
 class ReligiousPracticeScreen extends StatelessWidget {
@@ -19,7 +18,7 @@ class ReligiousPracticeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => CardSingleSelectScreen(
         title: 'How do you practise your religion?',
-        options: const [
+        options: [
           CardOption(
             id: 'strictly_practising',
             title: 'Strictly practising',

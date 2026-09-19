@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../tag_grid_screen.dart';
-import '../../core/theme.dart';
+import 'tag_grid_screen.dart';
+import '../../core/providers.dart';
 
 /// Interests selection screen - Step 10
 class InterestsScreen extends ConsumerStatefulWidget {
@@ -33,11 +33,12 @@ class _InterestsScreenState extends ConsumerState<InterestsScreen> {
         loading: () => const [],
         error: (_, __) => const [],
       ),
-      onConfirm: onConfirm,
-      currentStep: currentStep,
-      totalSteps: totalSteps,
+      onConfirm: widget.onConfirm,
+      currentStep: widget.currentStep,
+      totalSteps: widget.totalSteps,
       helpText: 'Select interests that best describe you. These help with compatibility matching.',
       isSkippable: true,
+      onSkip: () => widget.onConfirm(const {}),
       maxSelectable: null, // Unlimited for interests
     );
   }

@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../searchable_single_select.dart';
-import '../../core/theme.dart';
+import 'searchable_single_select.dart';
 
 /// Nationality selection screen - Step 3
 class NationalityScreen extends ConsumerStatefulWidget {
@@ -27,13 +26,14 @@ class _NationalityScreenState extends ConsumerState<NationalityScreen> {
         title: 'What\'s your nationality?',
         apiPath: '/nationalities',
         suggestedApiPath: '/nationalities/suggested',
-        onConfirm: onConfirm,
-        currentStep: currentStep,
-        totalSteps: totalSteps,
+        onConfirm: widget.onConfirm,
+        currentStep: widget.currentStep,
+        totalSteps: widget.totalSteps,
         helpText: 'Your nationality helps with location-based matching.',
         itemLabel: (item) => item['label'] ?? item['name'] ?? item.toString(),
         itemIcon: (item) => item['icon'] != null
-            ? IconData(item['icon'] as int, fontFamily: 'MaterialIcons')
+            // ignore: non_const_argument_for_const_parameter
+            ? Icon(IconData((item['icon'] as int), fontFamily: 'MaterialIcons', matchTextDirection: true))
             : null,
       );
 }

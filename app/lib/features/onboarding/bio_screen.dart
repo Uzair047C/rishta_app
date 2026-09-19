@@ -28,7 +28,7 @@ class BioScreen extends ConsumerStatefulWidget {
 class _BioScreenState extends ConsumerState<BioScreen> {
   final _ctrl = TextEditingController();
   final _focusNode = FocusNode();
-  bool _busy = false;
+  bool _busy = false; // ignore: prefer_final_fields
 
   @override
   void initState() {

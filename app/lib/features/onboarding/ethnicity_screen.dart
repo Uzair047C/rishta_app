@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../searchable_single_select.dart';
-import '../../core/theme.dart';
+import 'searchable_single_select.dart';
 
 /// Ethnicity selection screen - Step 4
 class EthnicityScreen extends ConsumerStatefulWidget {
@@ -27,9 +26,9 @@ class _EthnicityScreenState extends ConsumerState<EthnicityScreen> {
         title: 'What\'s your ethnicity?',
         apiPath: '/ethnicities',
         suggestedApiPath: '/ethnicities/suggested',
-        onConfirm: onConfirm,
-        currentStep: currentStep,
-        totalSteps: totalSteps,
+        onConfirm: widget.onConfirm,
+        currentStep: widget.currentStep,
+        totalSteps: widget.totalSteps,
         helpText: 'Your ethnicity helps with cultural compatibility matching.',
         itemLabel: (item) => item['label'] ?? item['name'] ?? item.toString(),
         itemIcon: null, // No flags for ethnicity as per spec

@@ -1,7 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 
 import 'api.dart';
 import 'models.dart';
@@ -133,7 +131,7 @@ final interestCategoriesProvider = FutureProvider<List<TagCategory>>((ref) async
   final api = ref.watch(apiProvider);
   return api.get('/interest-categories', (j) {
     final map = j as Map<String, dynamic>;
-    final categoriesJson = Json.children(map, 'categories', (j) => j as Map<String, dynamic>);
+    final categoriesJson = Json.children(map, 'categories', (j) => j);
     return categoriesJson.map((categoryJson) {
       final name = Json.str(categoryJson, 'name');
       final tagsJson = Json.children(categoryJson, 'tags', Tag.fromJson);
@@ -152,7 +150,7 @@ final personalityCategoriesProvider = FutureProvider<List<TagCategory>>((ref) as
   final api = ref.watch(apiProvider);
   return api.get('/personality-categories', (j) {
     final map = j as Map<String, dynamic>;
-    final categoriesJson = Json.children(map, 'categories', (j) => j as Map<String, dynamic>);
+    final categoriesJson = Json.children(map, 'categories', (j) => j);
     return categoriesJson.map((categoryJson) {
       final name = Json.str(categoryJson, 'name');
       final tagsJson = Json.children(categoryJson, 'tags', Tag.fromJson);

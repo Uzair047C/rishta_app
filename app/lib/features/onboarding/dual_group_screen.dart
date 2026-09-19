@@ -26,8 +26,8 @@ class DualGroupScreen extends StatefulWidget {
   });
 
   final String title;
-  final _GroupConfig groupA;
-  final _GroupConfig groupB;
+  final GroupConfig groupA;
+  final GroupConfig groupB;
   final void Function(dynamic groupAValue, dynamic groupBValue) onContinue;
   final int currentStep;
   final int totalSteps;
@@ -37,11 +37,10 @@ class DualGroupScreen extends StatefulWidget {
   State<DualGroupScreen> createState() => _DualGroupScreenState();
 }
 
-class _GroupConfig {
-  const _GroupConfig({required this.title, required this.options, this.initialValue});
+class GroupConfig {
+  const GroupConfig({required this.title, required this.options});
   final String title;
   final List<GroupOption> options;
-  final dynamic initialValue;
 }
 
 class _DualGroupScreenState extends State<DualGroupScreen> {
@@ -51,8 +50,6 @@ class _DualGroupScreenState extends State<DualGroupScreen> {
   @override
   void initState() {
     super.initState();
-    _selectedA = widget.groupA.initialValue;
-    _selectedB = widget.groupB.initialValue;
   }
 
   @override
@@ -96,7 +93,7 @@ class _DualGroupScreenState extends State<DualGroupScreen> {
     );
   }
 
-  Widget _buildGroup(_GroupConfig group, dynamic selected, void Function(dynamic) onSelect) => Column(
+  Widget _buildGroup(GroupConfig group, dynamic selected, void Function(dynamic) onSelect) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(group.title, style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Tokens.pinkDeep, fontWeight: FontWeight.w700)),

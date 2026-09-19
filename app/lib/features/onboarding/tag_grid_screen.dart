@@ -1,30 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/api.dart';
+import '../../core/models.dart';
 import '../../core/theme.dart';
 import 'onboarding_scaffold.dart';
-
-/// Category of tags for grouped display.
-class TagCategory {
-  const TagCategory({required this.name, required this.tags});
-  final String name;
-  final List<TagItem> tags;
-}
-
-/// Individual tag item.
-class TagItem {
-  const TagItem({required this.id, required this.label, this.icon});
-  final dynamic id;
-  final String label;
-  final IconData? icon;
-
-  factory TagItem.fromJson(Map<String, dynamic> j) => TagItem(
-        id: j['id'],
-        label: j['label'] as String,
-        icon: j['icon'] != null ? IconData(j['icon'] as int, fontFamily: 'MaterialIcons') : null,
-      );
-}
 
 /// Reusable multi-select chip grid screen for interests and personality.
 class TagGridScreen extends ConsumerStatefulWidget {
@@ -59,13 +38,11 @@ class TagGridScreen extends ConsumerStatefulWidget {
 
 class _TagGridScreenState extends ConsumerState<TagGridScreen> {
   late Set<dynamic> _selected;
-  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
     _selected = Set.from(widget.initialSelection);
-    _loading = false; // Categories passed in, no loading needed
   }
 
   void _toggle(dynamic id) {
@@ -152,7 +129,6 @@ class _TagGridScreenState extends ConsumerState<TagGridScreen> {
 
   Widget _buildChip(TagItem tag) {
     final isSelected = _selected.contains(tag.id);
-    final scheme = Theme.of(context).colorScheme;
 
     return FilterChip(
       label: Row(

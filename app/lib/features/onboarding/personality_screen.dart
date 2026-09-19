@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../tag_grid_screen.dart';
-import '../../core/theme.dart';
+import 'tag_grid_screen.dart';
+import '../../core/providers.dart';
 
 /// Personality traits selection screen - Step 11
 class PersonalityScreen extends ConsumerStatefulWidget {
@@ -33,11 +33,12 @@ class _PersonalityScreenState extends ConsumerState<PersonalityScreen> {
         loading: () => const [],
         error: (_, __) => const [],
       ),
-      onConfirm: onConfirm,
-      currentStep: currentStep,
-      totalSteps: totalSteps,
+      onConfirm: widget.onConfirm,
+      currentStep: widget.currentStep,
+      totalSteps: widget.totalSteps,
       helpText: 'Select up to 5 traits that best describe your personality.',
       isSkippable: true,
+      onSkip: () => widget.onConfirm(const {}),
       maxSelectable: 5, // Maximum 5 traits for personality as per spec
     );
   }
