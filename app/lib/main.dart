@@ -29,27 +29,17 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   debugPrint('Main: Starting Firebase initialization');
 
-  // Safely initialize Firebase with fallback for Desktop/Web live previews
+  // Initialize Firebase for mobile and desktop
   try {
-    if (kIsWeb) {
-      debugPrint('Main: Initializing Firebase for web');
-      await Firebase.initializeApp(
-        options: const FirebaseOptions(
-            apiKey: "AIzaSyBysS0XXNnvts4KzFivHYQySfvbgEF297A",
-            authDomain: "rishta-app-316aa.firebaseapp.com",
-            projectId: "rishta-app-316aa",
-            storageBucket: "rishta-app-316aa.firebasestorage.app",
-            messagingSenderId: "550519095432",
-            appId: "1:550519095432:web:c193899b59a9f10b7a5f3d",
-            measurementId: "G-ZGDLPSL2P9"
-        ),
-      );
-      debugPrint('Main: Firebase initialized for web');
-    } else {
-      debugPrint('Main: Initializing Firebase for native');
-      await Firebase.initializeApp();
-      debugPrint('Main: Firebase initialized for native');
+    debugPrint('Main: Initializing Firebase');
+    await Firebase.initializeApp();
+    debugPrint('Main: Firebase initialized');
+  } catch (e) {
+    if (kDebugMode) {
+      debugPrint('[Firebase] Initialization error: $e');
     }
+    debugPrint('Main: Firebase initialization error: $e');
+  }
     debugPrint('Main: Setting up background message handler');
     FirebaseMessaging.onBackgroundMessage(_onBackgroundMessage);
     debugPrint('Main: Background message handler set up');

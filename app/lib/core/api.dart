@@ -66,7 +66,7 @@ class Api {
       : _token = token,
         _client = client ?? http.Client(),
         _base = baseUrl ??
-            const String.fromEnvironment('API_BASE', defaultValue: 'http://10.0.2.2:3000');
+            const String.fromEnvironment('API_BASE', defaultValue: 'http://localhost:3001');
 
   final TokenProvider _token;
   final http.Client _client;

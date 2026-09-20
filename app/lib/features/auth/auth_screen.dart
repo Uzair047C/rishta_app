@@ -198,10 +198,6 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
 
   // ─── Google Sign-In ─────────────────────────────────────────────────────
   Future<void> _signInWithGoogle() => _run(() async {
-        if (kIsWeb) {
-          await _auth.signInWithPopup(GoogleAuthProvider());
-          return;
-        }
         final googleUser = await GoogleSignIn().signIn();
         if (googleUser == null) return; // user cancelled
         final ga = await googleUser.authentication;
