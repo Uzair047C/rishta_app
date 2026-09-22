@@ -12,6 +12,16 @@ import 'features/onboarding/profile_form_screen.dart';
 import 'features/onboarding/selfie_screen.dart';
 import 'features/settings/settings_screen.dart';
 
+/// Firebase options for web (dummy values for non-web platforms)
+const FirebaseOptions firebaseOptions = FirebaseOptions(
+  apiKey: "dummy",
+  authDomain: "dummy",
+  projectId: "dummy",
+  storageBucket: "dummy",
+  messagingSenderId: "dummy",
+  appId: "dummy",
+);
+
 /// Live theme mode state for dynamic light/dark toggling.
 final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.light);
 
@@ -32,20 +42,17 @@ Future<void> main() async {
   // Initialize Firebase for mobile and desktop
   try {
     debugPrint('Main: Initializing Firebase');
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(
+      options: kIsWeb ? firebaseOptions : null,
+    );
     debugPrint('Main: Firebase initialized');
+
+    debugPrint('Main: Setting up background message handler');
+    FirebaseMessaging.onBackgroundMessage(_onBackgroundMessage);
+    debugPrint('Main: Background message handler: Background message handler set up');
   } catch (e) {
     if (kDebugMode) {
       debugPrint('[Firebase] Initialization error: $e');
-    }
-    debugPrint('Main: Firebase initialization error: $e');
-  }
-    debugPrint('Main: Setting up background message handler');
-    FirebaseMessaging.onBackgroundMessage(_onBackgroundMessage);
-    debugPrint('Main: Background message handler set up');
-  } catch (e) {
-    if (kDebugMode) {
-      debugPrint('[Firebase] Live preview mode without native config: $e');
     }
     debugPrint('Main: Firebase initialization error: $e');
   }
