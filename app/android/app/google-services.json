@@ -1,35 +1,33 @@
 {
   "project_info": {
-    "project_number": "YOUR_PROJECT_NUMBER",
-    "project_id": "YOUR_PROJECT_ID",
-    "name": "rishta",
-    "firebase_url": "https://YOUR_PROJECT_ID.firebaseio.com",
-    "storage_bucket": "YOUR_PROJECT_ID.appspot.com"
+    "project_number": "550519095432",
+    "project_id": "rishta-app-316aa",
+    "storage_bucket": "rishta-app-316aa.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:YOUR_PROJECT_NUMBER:android:YOUR_ANDROID_APP_ID",
+        "mobilesdk_app_id": "1:550519095432:android:05c676925fa782a27a5f3d",
         "android_client_info": {
           "package_name": "com.example.rishta"
         }
       },
       "oauth_client": [
         {
-          "client_id": "YOUR_ANDROID_CLIENT_ID.apps.googleusercontent.com",
+          "client_id": "550519095432-mhdvj63d9kf5m1ej57rr1d93v1f77l46.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "YOUR_API_KEY"
+          "current_key": "AIzaSyDa_cdD6Im6ZSjXqAT_oh144AZoR6Z941M"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "YOUR_IOS_CLIENT_ID.apps.googleusercontent.com",
+              "client_id": "550519095432-mhdvj63d9kf5m1ej57rr1d93v1f77l46.apps.googleusercontent.com",
               "client_type": 3
             }
           ]
