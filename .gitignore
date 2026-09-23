@@ -52,3 +52,38 @@ $RECYCLE.BIN/
 .nfs*
 
 # End of https://www.gitignore.io/api/windows,linux,macos
+
+# Build directories & CMake artifacts
+build/
+/build/
+**/build/
+*.vcxproj*
+*.slnx
+*.sln
+*.dir/
+*.lib
+*.obj
+*.pdb
+*.exp
+*.idb
+*.tlog
+*.exe
+*.dll
+*.zip
+*.log
+logs_problem.logs
+
+# Flutter & Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/coverage/
+
+# Node / NestJS Backend
+node_modules/
+backend/dist/
+backend/node_modules/
+*.env*
+!*.env.example
