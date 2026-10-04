@@ -1,5 +1,3 @@
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,45 +6,15 @@ import 'core/core.dart';
 import 'features/feed/feed_screen.dart';
 import 'features/matches/matches_screen.dart';
 import 'features/onboarding/photos_screen.dart';
-import 'features/onboarding/profile_form_screen.dart';
 import 'features/onboarding/selfie_screen.dart';
 import 'features/settings/settings_screen.dart';
-import 'firebase_options.dart';
 
 /// Live theme mode state for dynamic light/dark toggling.
 final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.light);
 
-/// FCM delivers data-only messages, which the OS will not surface on its own, so
-/// the server-triggered notifications are rendered here while the app is
-/// backgrounded. Must be a top-level function.
-@pragma('vm:entry-point')
-Future<void> _onBackgroundMessage(RemoteMessage message) async {
-  try {
-    await Firebase.initializeApp();
-  } catch (_) {}
-}
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  debugPrint('Main: Starting Firebase initialization');
-
-  // Initialize Firebase for mobile and desktop
-  try {
-    debugPrint('Main: Initializing Firebase');
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    debugPrint('Main: Firebase initialized');
-
-    debugPrint('Main: Setting up background message handler');
-    FirebaseMessaging.onBackgroundMessage(_onBackgroundMessage);
-    debugPrint('Main: Background message handler: Background message handler set up');
-  } catch (e) {
-    if (kDebugMode) {
-      debugPrint('[Firebase] Initialization error: $e');
-    }
-    debugPrint('Main: Firebase initialization error: $e');
-  }
+  debugPrint('Main: Starting app');
 
   debugPrint('Main: Running app');
   runApp(const ProviderScope(child: RishtaApp()));
@@ -107,9 +75,9 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
 
   @override
   Widget build(BuildContext context) => switch (_step) {
-        0 => ProfileFormScreen(onNext: () => setState(() => _step = 1)),
-        1 => PhotosScreen(onNext: () => setState(() => _step = 2)),
-        _ => SelfieScreen(onDone: () => AppGate._refresh(ref)),
+        0 => PhotosScreen(onNext: () => setState(() => _step = 1)),
+        1 => SelfieScreen(onDone: () => AppGate._refresh(ref)),
+        _ => SelfieScreen(onDone: () => AppGate._refresh(ref)), // Default case
       };
 }
 

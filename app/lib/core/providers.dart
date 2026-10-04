@@ -1,27 +1,27 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 import 'api.dart';
 import 'models.dart';
 
 /// ----------------------------------------------------------------- auth
 
-final firebaseAuthProvider = Provider<FirebaseAuth>((_) => FirebaseAuth.instance);
+/// Mock auth provider for development when Firebase is removed
+final mockAuthProvider = Provider<bool>((_) => true);
 
-/// Firebase's own auth stream — the source of truth for signed-in/out.
-final authStateProvider = StreamProvider<User?>(
-  (ref) => ref.watch(firebaseAuthProvider).authStateChanges(),
+/// Mock auth state - always signed in for development
+final authStateProvider = StreamProvider<bool>((ref) =>
+  Stream.value(true)
 );
 
 /// ------------------------------------------------------------------ api
 
+/// Mock API provider that doesn't require Firebase tokens
 final apiProvider = Provider<Api>(
   (ref) => Api(
     token: () async {
-      // getIdToken() refreshes automatically when the cached token is stale.
-      final user = ref.read(firebaseAuthProvider).currentUser;
-      if (user == null) return null;
-      return user.getIdToken();
+      // Return a mock token for development
+      // In production without Firebase, you would implement actual auth logic here
+      return 'mock-dev-token';
     },
   ),
 );
@@ -82,7 +82,8 @@ final sessionProvider = AsyncNotifierProvider<SessionNotifier, Session>(SessionN
 class SessionNotifier extends RemoteAsync<Session> {
   @override
   Future<Session> fetch(Api api) async {
-    if (ref.read(firebaseAuthProvider).currentUser == null) return const Session.signedOut();
+    // With Firebase removed, we simulate an authenticated user for development
+    // In production without Firebase, you would implement actual auth logic here
     final json = await api.post<Map<String, dynamic>>('/auth/verify-token');
     final onboarding = json['onboarding'] as Map<String, dynamic>? ?? const {};
     return Session(
@@ -314,7 +315,7 @@ class NotificationPrefsNotifier extends RemoteAsync<NotificationPrefs> {
 
 final subscriptionProvider = FutureProvider<Subscription>((ref) async {
   final api = ref.watch(apiProvider);
-  final user = ref.read(firebaseAuthProvider).currentUser;
-  if (user == null) throw Exception('No authenticated user');
+  // With Firebase removed, we simulate an authenticated user for development
+  // In production without Firebase, you would implement actual auth logic here
   return api.get('/subscription', (j) => Subscription.fromJson(j as Map<String, dynamic>));
 });

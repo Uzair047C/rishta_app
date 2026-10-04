@@ -10,6 +10,12 @@ export class SubscriptionController {
     private readonly users: UsersService,
   ) {}
 
+  @Get()
+  async getSubscription(@Auth() principal: Principal) {
+    const user = await this.users.require(principal.uid);
+    return this.subscriptions.status(user.id);
+  }
+
   @Get('status')
   async status(@Auth() principal: Principal) {
     const user = await this.users.require(principal.uid);

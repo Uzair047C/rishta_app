@@ -7,8 +7,6 @@ import {
   createParamDecorator,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { App, cert, getApps, initializeApp } from 'firebase-admin/app';
-import { DecodedIdToken, getAuth } from 'firebase-admin/auth';
 
 export interface Principal {
   uid: string;
@@ -32,29 +30,18 @@ export const Auth = createParamDecorator((_: unknown, ctx: ExecutionContext): Pr
   return ctx.switchToHttp().getRequest<{ auth: Principal }>().auth;
 });
 
-/**
- * Lazily initialized so the process boots (and /health answers) without
- * credentials configured — only actual token verification needs the key.
- */
-let app: App | undefined;
-
-export function firebaseApp(): App {
-  if (app) return app;
-  const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
-  if (!b64) throw new UnauthorizedException('firebase_not_configured');
-  const existing = getApps()[0];
-  app = existing ?? initializeApp({ credential: cert(JSON.parse(Buffer.from(b64, 'base64').toString())) });
-  return app;
-}
-
-/** Verifies a Firebase ID token server-side. Used by the guard and by signup. */
-export async function verifyIdToken(token: string): Promise<DecodedIdToken> {
-  return getAuth(firebaseApp()).verifyIdToken(token);
-}
+/** Mock principal for development when Firebase is removed */
+const MOCK_PRINCIPAL: Principal = {
+  uid: 'mock-user-id',
+  email: 'mock@example.com',
+  phone: null,
+};
 
 /**
  * Global guard: every route requires a valid Firebase ID token unless marked
  * @Public(). Spec 2.1 — verification happens on every request, not just login.
+ *
+ * With Firebase removed, this guard always allows access and sets a mock principal.
  */
 @Injectable()
 export class FirebaseGuard implements CanActivate {
@@ -65,19 +52,8 @@ export class FirebaseGuard implements CanActivate {
       return true;
     }
     const req = ctx.switchToHttp().getRequest<GuardedRequest>();
-    const header = req.headers.authorization;
-    const token = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : undefined;
-    if (!token) throw new UnauthorizedException('missing_bearer_token');
-    try {
-      const decoded = await verifyIdToken(token);
-      req.auth = {
-        uid: decoded.uid,
-        email: decoded.email ?? null,
-        phone: decoded.phone_number ?? null,
-      };
-      return true;
-    } catch {
-      throw new UnauthorizedException('invalid_token');
-    }
+    // Always set mock principal for development
+    req.auth = MOCK_PRINCIPAL;
+    return true;
   }
 }

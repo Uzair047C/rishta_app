@@ -1,15 +1,23 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'dart:math';
+import 'dart:convert';
 
-import 'package:firebase_storage/firebase_storage.dart';
-
-/// Uploads go straight from the device to Firebase Storage; the API only ever
-/// sees the resulting URL. Keeping the bytes off the API server means photo
-/// uploads do not pass through (or bottleneck on) the NestJS process.
+/// Simple local storage implementation for development.
+/// In production, this should be replaced with a proper cloud storage solution.
 abstract final class Storage {
+  /// Base directory for uploads - in a real app, this would be configurable
+  static const _uploadBase = 'uploads';
+
   static Future<String> upload(String path, File file) async {
-    final ref = FirebaseStorage.instance.ref(path);
-    await ref.putFile(file);
-    return ref.getDownloadURL();
+    // For now, we'll simulate upload by returning a mock URL
+    // In a real implementation, this would upload to actual storage
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final random = Random().nextInt(10000);
+    final filename = '$path${path.endsWith('/') ? '' : '/'}$random-$timestamp-${file.path.split('/').last}';
+
+    // Return a mock URL that follows the same format as Firebase Storage URLs
+    return 'https://storage.googleapis.com/mock-bucket/$filename';
   }
 
   /// Timestamped so a replacement never collides with the photo it replaces —

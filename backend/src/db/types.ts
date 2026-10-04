@@ -10,7 +10,6 @@ export type ReligiousPracticeLevel = 'strictly' | 'actively' | 'occasionally' | 
 
 export interface UserRow {
   id: string;
-  firebase_uid: string;
   email: string | null;
   phone: string | null;
   phone_verified: boolean;

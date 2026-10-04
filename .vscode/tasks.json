@@ -81,6 +81,18 @@
         "reveal": "silent"
       },
       "problemMatcher": []
+    },
+    {
+      "type": "flutter",
+      "command": "flutter",
+      "args": [
+        "build",
+        "web"
+      ],
+      "group": "build",
+      "problemMatcher": [],
+      "label": "flutter: flutter build web",
+      "detail": "app"
     }
   ]
 }

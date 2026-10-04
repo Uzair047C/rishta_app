@@ -1,7 +1,8 @@
 import 'reflect-metadata';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe, INestApplication } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { Request, Response, NextFunction } from 'express';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
@@ -10,6 +11,18 @@ async function bootstrap(): Promise<void> {
   app.enableCors({
     origin: true,
     credentials: true,
+  });
+
+  // Simple request logging middleware
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const logger = new Logger('Request');
+    logger.log(`${req.method} ${req.url}`);
+    const start = Date.now();
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      logger.log(`${req.method} ${req.url} ${res.statusCode} - ${duration}ms`);
+    });
+    next();
   });
 
   app.useGlobalPipes(

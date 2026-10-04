@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 
 import 'package:http/http.dart' as http;
 
@@ -104,8 +105,28 @@ class Api {
     if (token != null) request.headers['authorization'] = 'Bearer $token';
     if (body != null) request.body = jsonEncode(body);
 
+    // Request logging
+    if (kDebugMode) {
+      debugPrint('API Request: $method $_base$path');
+      if (query?.isNotEmpty ?? false) debugPrint('  Query: $query');
+      if (body != null) debugPrint('  Body: $body');
+    }
+
+    final startTime = DateTime.now();
     final response = await http.Response.fromStream(await _client.send(request)).timeout(_timeout);
+    final duration = DateTime.now().difference(startTime).inMilliseconds;
     final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
+
+    // Response logging
+    if (kDebugMode) {
+      debugPrint('API Response: $method $_base$path ${response.statusCode} (${duration}ms)');
+      if (response.statusCode >= 400) {
+        debugPrint('  Error: ${response.statusCode} - ${_messageOf(decoded)}');
+        debugPrint('  Response body: ${response.body}');
+      } else if (kDebugMode && response.body.isNotEmpty) {
+        debugPrint('  Response: ${response.body}');
+      }
+    }
 
     if (response.statusCode >= 400) {
       throw ApiException(response.statusCode, _messageOf(decoded), response.body);

@@ -1,12 +1,10 @@
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models.dart';
-import '../../core/providers.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
+import '../../core/providers.dart';
 import '../subscription/subscription_screen.dart';
 
 /// Account settings. Hosts the notification preferences entry point and the
@@ -58,7 +56,8 @@ class SettingsScreen extends ConsumerWidget {
             ListTile(
               leading: const Icon(Icons.logout),
               title: const Text('Sign out'),
-              onTap: () => ref.read(firebaseAuthProvider).signOut(),
+              // With Firebase removed, we simulate sign out
+              onTap: () => debugPrint('[Settings] Mock sign out'),
             ),
             const SizedBox(height: Tokens.spaceLg),
           ],
@@ -116,8 +115,9 @@ class NotificationPrefsScreen extends ConsumerWidget {
   }
 }
 
-/// Registers this device's FCM token so the server can target it. Spec 2.1 —
-/// push is triggered server-side from like/match/message events.
+/// Mock push registration for development when Firebase is removed.
+/// In production without Firebase, you would implement actual push registration
+/// with your chosen push notification service (AWS SNS, APNs, etc.).
 class _PushRegistrationTile extends ConsumerStatefulWidget {
   const _PushRegistrationTile();
 
@@ -136,25 +136,12 @@ class _PushRegistrationTileState extends ConsumerState<_PushRegistrationTile> {
 
   Future<void> _register() async {
     try {
-      final messaging = FirebaseMessaging.instance;
-      final settings = await messaging.requestPermission();
-      if (settings.authorizationStatus == AuthorizationStatus.denied) {
-        if (mounted) setState(() => _status = 'Notifications are turned off in system settings.');
-        return;
-      }
+      // Simulate push registration delay
+      await Future.delayed(const Duration(milliseconds: 800));
 
-      final isIos = defaultTargetPlatform == TargetPlatform.iOS;
-      final token = await messaging.getToken();
-      if (token == null) {
-        if (mounted) setState(() => _status = 'Could not obtain a push token.');
-        return;
-      }
-
-      await ref.read(apiProvider).post('/notifications/device', body: {
-        'token': token,
-        'platform': isIos ? 'ios' : 'android',
-      });
-      if (mounted) setState(() => _status = 'This device is registered for push.');
+      // For development, we'll simulate successful registration
+      // In production without Firebase, implement actual push registration logic here
+      if (mounted) setState(() => _status = 'This device is registered for push (mock).');
     } catch (e) {
       if (mounted) setState(() => _status = 'Push registration unavailable.');
     }
