@@ -135,10 +135,10 @@ final interestCategoriesProvider = FutureProvider<List<TagCategory>>((ref) async
     return categoriesJson.map((categoryJson) {
       final name = Json.str(categoryJson, 'name');
       final tagsJson = Json.children(categoryJson, 'tags', Tag.fromJson);
-      final tags = tagsJson.map((tag) => TagItem(
+      final tags = tagsJson.map<TagItem>((tag) => TagItem(
             id: tag.id,
             label: tag.label,
-            icon: null,
+            iconCode: null,
           )).toList();
       return TagCategory(name: name, tags: tags);
     }).toList();
@@ -154,10 +154,10 @@ final personalityCategoriesProvider = FutureProvider<List<TagCategory>>((ref) as
     return categoriesJson.map((categoryJson) {
       final name = Json.str(categoryJson, 'name');
       final tagsJson = Json.children(categoryJson, 'tags', Tag.fromJson);
-      final tags = tagsJson.map((tag) => TagItem(
+      final tags = tagsJson.map<TagItem>((tag) => TagItem(
             id: tag.id,
             label: tag.label,
-            icon: null,
+            iconCode: null,
           )).toList();
       return TagCategory(name: name, tags: tags);
     }).toList();

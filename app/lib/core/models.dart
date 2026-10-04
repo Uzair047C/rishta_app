@@ -307,16 +307,15 @@ class TagCategory {
 
 /// Individual tag item.
 class TagItem {
-  const TagItem({required this.id, required this.label, this.icon});
+  const TagItem({required this.id, required this.label, this.iconCode});
   final dynamic id;
   final String label;
-  final IconData? icon;
+  final int? iconCode;
 
   factory TagItem.fromJson(Map<String, dynamic> j) => TagItem(
         id: j['id'],
         label: j['label'] as String,
-        // ignore: non_const_argument_for_const_parameter
-        icon: j['icon'] != null ? IconData((j['icon'] as int), fontFamily: 'MaterialIcons', matchTextDirection: true) : null,
+        iconCode: j['icon'] != null ? (j['icon'] as int) : null,
       );
 }
 

@@ -16,12 +16,6 @@ import 'package:flutter/foundation.dart'
 /// ```
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
-    if (kIsWeb) {
-      throw UnsupportedError(
-        'DefaultFirebaseOptions have not been configured for web - '
-        'you can reconfigure this by running the FlutterFire CLI again.',
-      );
-    }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         return android;
@@ -40,11 +34,19 @@ class DefaultFirebaseOptions {
           'you can reconfigure this by running the FlutterFire CLI again.',
         );
       default:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions are not supported for this platform.',
-        );
+        return web;
     }
   }
+
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyBysS0XXNnvts4KzFivHYQySfvbgEF297A',
+    appId: '1:550519095432:web:c2f53c4cfd0a58907a5f3d',
+    messagingSenderId: '550519095432',
+    projectId: 'rishta-app-316aa',
+    authDomain: 'rishta-app-316aa.firebaseapp.com',
+    storageBucket: 'rishta-app-316aa.firebasestorage.app',
+    measurementId: 'G-6D2M3SWKH3',
+  );
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyDa_cdD6Im6ZSjXqAT_oh144AZoR6Z941M',

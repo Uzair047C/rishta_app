@@ -11,16 +11,7 @@ import 'features/onboarding/photos_screen.dart';
 import 'features/onboarding/profile_form_screen.dart';
 import 'features/onboarding/selfie_screen.dart';
 import 'features/settings/settings_screen.dart';
-
-/// Firebase options for web (dummy values for non-web platforms)
-const FirebaseOptions firebaseOptions = FirebaseOptions(
-  apiKey: "dummy",
-  authDomain: "dummy",
-  projectId: "dummy",
-  storageBucket: "dummy",
-  messagingSenderId: "dummy",
-  appId: "dummy",
-);
+import 'firebase_options.dart';
 
 /// Live theme mode state for dynamic light/dark toggling.
 final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.light);
@@ -43,7 +34,7 @@ Future<void> main() async {
   try {
     debugPrint('Main: Initializing Firebase');
     await Firebase.initializeApp(
-      options: kIsWeb ? firebaseOptions : null,
+      options: DefaultFirebaseOptions.currentPlatform,
     );
     debugPrint('Main: Firebase initialized');
 
