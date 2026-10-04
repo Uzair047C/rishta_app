@@ -87,3 +87,6 @@ backend/dist/
 backend/node_modules/
 *.env*
 !*.env.example
+
+# Firebase service account (should not be committed)
+rishta-app-316aa-firebase-adminsdk-fbsvc-43da4ac72f.json
