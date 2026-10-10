@@ -3,27 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'api.dart';
 import 'models.dart';
 
-/// ----------------------------------------------------------------- auth
-
-/// Mock auth provider for development when Firebase is removed
-final mockAuthProvider = Provider<bool>((_) => true);
-
-/// Mock auth state - always signed in for development
-final authStateProvider = StreamProvider<bool>((ref) =>
-  Stream.value(true)
-);
-
 /// ------------------------------------------------------------------ api
 
-/// Mock API provider that doesn't require Firebase tokens
+/// API provider without auth (no token needed)
 final apiProvider = Provider<Api>(
-  (ref) => Api(
-    token: () async {
-      // Return a mock token for development
-      // In production without Firebase, you would implement actual auth logic here
-      return 'mock-dev-token';
-    },
-  ),
+  (ref) => Api(),
 );
 
 /// --------------------------------------------------------- repositories
@@ -65,33 +49,6 @@ abstract class RemoteAsync<T> extends AsyncNotifier<T> {
   }
 }
 
-/// ------------------------------------------------------------ session
-
-class Session {
-  const Session({required this.signedIn, this.profileComplete = false});
-
-  const Session.signedOut() : signedIn = false, profileComplete = false;
-
-  final bool signedIn;
-  final bool profileComplete;
-}
-
-final sessionProvider = AsyncNotifierProvider<SessionNotifier, Session>(SessionNotifier.new);
-
-/// Provisions the users row server-side and reports whether onboarding is done.
-class SessionNotifier extends RemoteAsync<Session> {
-  @override
-  Future<Session> fetch(Api api) async {
-    // With Firebase removed, we simulate an authenticated user for development
-    // In production without Firebase, you would implement actual auth logic here
-    final json = await api.post<Map<String, dynamic>>('/auth/verify-token');
-    final onboarding = json['onboarding'] as Map<String, dynamic>? ?? const {};
-    return Session(
-      signedIn: true,
-      profileComplete: onboarding['profileComplete'] as bool? ?? false,
-    );
-  }
-}
 
 /// ------------------------------------------------------------ profile
 
@@ -165,30 +122,6 @@ final personalityCategoriesProvider = FutureProvider<List<TagCategory>>((ref) as
   });
 });
 
-/// ------------------------------------------------------- verification
-
-final verificationProvider =
-    AsyncNotifierProvider<VerificationNotifier, VerificationStatus>(VerificationNotifier.new);
-
-class VerificationNotifier extends RemoteAsync<VerificationStatus> {
-  @override
-  Future<VerificationStatus> fetch(Api api) async {
-    final json = await api.get<Map<String, dynamic>>('/verification/status', (j) => j as Map<String, dynamic>);
-    return VerificationStatus.parse(json['status'] as String?);
-  }
-
-  /// Step 1 then step 2 of the flow; the caller supplies the recorded video ref.
-  Future<void> submit({String? livenessSessionId, String? selfieUrl}) async {
-    state = const AsyncValue.loading();
-    state = await AsyncValue.guard(() async {
-      await api.post('/verification/selfie', body: {
-        if (livenessSessionId != null) 'livenessSessionId': livenessSessionId,
-        if (selfieUrl != null) 'selfieUrl': selfieUrl,
-      });
-      return fetch(api);
-    });
-  }
-}
 
 /// ----------------------------------------------------------- filters
 
@@ -315,7 +248,5 @@ class NotificationPrefsNotifier extends RemoteAsync<NotificationPrefs> {
 
 final subscriptionProvider = FutureProvider<Subscription>((ref) async {
   final api = ref.watch(apiProvider);
-  // With Firebase removed, we simulate an authenticated user for development
-  // In production without Firebase, you would implement actual auth logic here
   return api.get('/subscription', (j) => Subscription.fromJson(j as Map<String, dynamic>));
 });

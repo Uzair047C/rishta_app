@@ -53,8 +53,6 @@ class ApiException implements Exception {
   String toString() => 'ApiException($statusCode, $code)';
 }
 
-typedef TokenProvider = Future<String?> Function();
-
 /// Standard report reasons, shared by feed and match reporting.
 const kReportReasons = ['Inappropriate photos', 'Harassment', 'Fake profile', 'Spam or scam'];
 
@@ -63,13 +61,11 @@ const kReportReasons = ['Inappropriate photos', 'Harassment', 'Fake profile', 'S
 /// Generic over the decoded body: callers pass the parse function, so there is
 /// one request path for every endpoint rather than a method per route.
 class Api {
-  Api({required TokenProvider token, http.Client? client, String? baseUrl})
-      : _token = token,
-        _client = client ?? http.Client(),
+  Api({http.Client? client, String? baseUrl})
+      : _client = client ?? http.Client(),
         _base = baseUrl ??
             const String.fromEnvironment('API_BASE', defaultValue: 'http://localhost:3001');
 
-  final TokenProvider _token;
   final http.Client _client;
   final String _base;
 
@@ -101,8 +97,6 @@ class Api {
     final request = http.Request(method, uri)
       ..headers['content-type'] = 'application/json';
 
-    final token = await _token();
-    if (token != null) request.headers['authorization'] = 'Bearer $token';
     if (body != null) request.body = jsonEncode(body);
 
     // Request logging

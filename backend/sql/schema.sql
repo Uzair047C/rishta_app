@@ -16,7 +16,6 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
 
 CREATE TABLE users (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  firebase_uid   text NOT NULL,
   email          text,
   phone          text,
   phone_verified boolean NOT NULL DEFAULT false,
@@ -26,13 +25,11 @@ CREATE TABLE users (
   location       text,
   lat            double precision,
   lng            double precision,
-  auth_provider  text NOT NULL DEFAULT 'firebase',
   device_id      text,
   created_at     timestamptz NOT NULL DEFAULT now(),
   CHECK ((gender IS NULL) = (dob IS NULL))
 );
 
-CREATE UNIQUE INDEX users_firebase_uid_uniq ON users (firebase_uid);
 -- Duplicate-account prevention: a *verified* phone may exist only once.
 -- Partial index so many rows may hold an unverified/NULL phone.
 CREATE UNIQUE INDEX users_phone_verified_uniq ON users (phone) WHERE phone_verified;

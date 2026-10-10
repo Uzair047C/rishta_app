@@ -1,5 +1,5 @@
 import { Controller, Delete, Get, NotFoundException, Param, ParseUUIDPipe } from '@nestjs/common';
-import { Auth, Principal } from '../auth/auth';
+import { Public } from '../auth/public.decorator';
 import { UsersService } from '../users/users.service';
 import { Db } from '../db/db';
 
@@ -14,9 +14,10 @@ export class MatchesController {
    * Spec 1.2 — reads are deliberately NOT gated on subscription status. An
    * expired plan must not lock existing conversation.
    */
+  @Public()
   @Get()
-  async list(@Auth() principal: Principal) {
-    const user = await this.users.require(principal.uid);
+  async list() {
+    const user = await this.users.require();
     const matches = await this.db.all(
       `SELECT m.id AS match_id, m.matched_at,
               u.id AS user_id, u.gender, u.location,
@@ -39,9 +40,10 @@ export class MatchesController {
   }
 
   /** Spec 1.2 — unmatch is distinct from report/block; it only ends the match. */
+  @Public()
   @Delete(':id')
-  async unmatch(@Auth() principal: Principal, @Param('id', ParseUUIDPipe) id: string) {
-    const user = await this.users.require(principal.uid);
+  async unmatch(@Param('id', ParseUUIDPipe) id: string) {
+    const user = await this.users.require();
     const updated = await this.db.query(
       `UPDATE matches SET unmatched_at = now()
         WHERE id = $1 AND unmatched_at IS NULL AND (user_a_id = $2 OR user_b_id = $2)

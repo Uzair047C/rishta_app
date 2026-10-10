@@ -52,13 +52,6 @@ class SettingsScreen extends ConsumerWidget {
                 MaterialPageRoute(builder: (_) => const NotificationPrefsScreen()),
               ),
             ),
-            const Divider(),
-            ListTile(
-              leading: const Icon(Icons.logout),
-              title: const Text('Sign out'),
-              // With Firebase removed, we simulate sign out
-              onTap: () => debugPrint('[Settings] Mock sign out'),
-            ),
             const SizedBox(height: Tokens.spaceLg),
           ],
         ),

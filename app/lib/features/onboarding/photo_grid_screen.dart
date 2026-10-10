@@ -102,7 +102,6 @@ class _PhotoGridScreenState extends ConsumerState<PhotoGridScreen> {
         }
         _error = null;
       });
-      ref.invalidate(verificationProvider);
     } catch (e) {
       if (mounted) _showError('Failed to upload photo: $e');
     } finally {

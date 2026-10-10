@@ -1,14 +1,9 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:math';
-import 'dart:convert';
 
 /// Simple local storage implementation for development.
 /// In production, this should be replaced with a proper cloud storage solution.
 abstract final class Storage {
-  /// Base directory for uploads - in a real app, this would be configurable
-  static const _uploadBase = 'uploads';
-
   static Future<String> upload(String path, File file) async {
     // For now, we'll simulate upload by returning a mock URL
     // In a real implementation, this would upload to actual storage

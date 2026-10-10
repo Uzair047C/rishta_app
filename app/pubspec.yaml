@@ -13,7 +13,6 @@ dependencies:
   # State
   flutter_riverpod: ^2.6.1
 
-
   # Chat
   stream_chat_flutter: ^9.0.0
 

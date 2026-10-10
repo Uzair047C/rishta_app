@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
-import { Auth, Principal } from '../auth/auth';
+import { Public } from '../auth/public.decorator';
 import { UsersService } from '../users/users.service';
 import { Db } from '../db/db';
 
@@ -24,9 +24,10 @@ export class ReportsController {
    * Reported but not blocked: the two actions stay independent (spec 1.2).
    */
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Public()
   @Post()
-  async create(@Auth() principal: Principal, @Body() dto: ReportDto) {
-    const user = await this.users.require(principal.uid);
+  async create(@Body() dto: ReportDto) {
+    const user = await this.users.require();
     if (user.id === dto.reportedId) throw new BadRequestException('cannot_report_self');
 
     const report = await this.db.one(

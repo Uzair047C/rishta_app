@@ -134,7 +134,7 @@ class _TagGridScreenState extends ConsumerState<TagGridScreen> {
       label: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (tag.icon != null) ...[Icon(tag.icon, size: 16, color: isSelected ? Colors.white : Tokens.pink), const SizedBox(width: 6)],
+          if (tag.iconCode != null) ...[Icon(IconData(tag.iconCode!, fontFamily: 'MaterialIcons'), size: 16, color: isSelected ? Colors.white : Tokens.pink), const SizedBox(width: 6)],
           Text(tag.label),
         ],
       ),

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import { IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
-import { Auth, Principal } from '../auth/auth';
+import { Public } from '../auth/public.decorator';
 import { UsersService } from '../users/users.service';
 import { VerificationService } from './verification.service';
 
@@ -19,23 +19,26 @@ export class VerificationController {
   ) {}
 
   /** Step 1 — client records a liveness video into this session. */
+  @Public()
   @Post('liveness-session')
-  async livenessSession(@Auth() principal: Principal) {
-    await this.users.requireOnboarded(principal.uid);
+  async livenessSession() {
+    await this.users.requireOnboarded();
     return this.verification.createLivenessSession();
   }
 
   /** Step 2 — server pulls the liveness result and face-matches it. */
+  @Public()
   @Post('selfie')
-  async selfie(@Auth() principal: Principal, @Body() dto: SelfieDto) {
-    const user = await this.users.requireOnboarded(principal.uid);
+  async selfie(@Body() dto: SelfieDto) {
+    const user = await this.users.requireOnboarded();
     return this.verification.submit(user, dto.livenessSessionId, dto.selfieUrl);
   }
 
   /** Drives the pending/verified/failed screen. */
+  @Public()
   @Get('status')
-  async status(@Auth() principal: Principal) {
-    const user = await this.users.require(principal.uid);
+  async status() {
+    const user = await this.users.require();
     return this.verification.status(user.id);
   }
 }

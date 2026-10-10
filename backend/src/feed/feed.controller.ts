@@ -2,7 +2,7 @@ import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
-import { Auth, Principal } from '../auth/auth';
+import { Public } from '../auth/public.decorator';
 import { UsersService } from '../users/users.service';
 import { FeedFilters, FeedService } from './feed.service';
 
@@ -30,29 +30,33 @@ export class FeedController {
   ) {}
 
   /** Only verified, onboarded profiles see a feed at all. */
+  @Public()
   @Get()
-  async list(@Auth() principal: Principal, @Query() query: FeedQuery) {
-    const user = await this.users.requireOnboarded(principal.uid);
+  async list(@Query() query: FeedQuery) {
+    const user = await this.users.requireOnboarded();
     return { candidates: await this.feed.feed(user, query) };
   }
 
   /** Stricter limit than the global default — this is a write with a quota. */
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Public()
   @Post('like')
-  async like(@Auth() principal: Principal, @Body() dto: TargetDto) {
-    const user = await this.users.requireOnboarded(principal.uid);
+  async like(@Body() dto: TargetDto) {
+    const user = await this.users.requireOnboarded();
     return this.feed.like(user, dto.userId);
   }
 
+  @Public()
   @Post('pass')
-  async pass(@Auth() principal: Principal, @Body() dto: TargetDto) {
-    const user = await this.users.requireOnboarded(principal.uid);
+  async pass(@Body() dto: TargetDto) {
+    const user = await this.users.requireOnboarded();
     return this.feed.pass(user, dto.userId);
   }
 
+  @Public()
   @Post('block')
-  async block(@Auth() principal: Principal, @Body() dto: BlockDto) {
-    const user = await this.users.require(principal.uid);
+  async block(@Body() dto: BlockDto) {
+    const user = await this.users.require();
     return this.feed.block(user, dto.userId, dto.reason);
   }
 }

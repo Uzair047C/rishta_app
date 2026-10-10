@@ -5,8 +5,6 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 
 import { Db } from './db/db';
-import { FirebaseGuard } from './auth/auth';
-import { AuthController } from './auth/auth.controller';
 import { UsersService } from './users/users.service';
 import { ProfileController } from './profile/profile.controller';
 import { ProfileService } from './profile/profile.service';
@@ -32,7 +30,6 @@ import { AdminController, AdminGuard } from './moderation/admin.controller';
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }]),
   ],
   controllers: [
-    AuthController,
     ProfileController,
     VerificationController,
     FeedController,
@@ -55,7 +52,6 @@ import { AdminController, AdminGuard } from './moderation/admin.controller';
     // Order matters: throttle before token verification, so an unauthenticated
     // flood is rejected by the cheaper check.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
-    { provide: APP_GUARD, useClass: FirebaseGuard },
   ],
 })
 export class AppModule {}

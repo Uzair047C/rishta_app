@@ -317,5 +317,7 @@ class TagItem {
         label: j['label'] as String,
         iconCode: j['icon'] != null ? (j['icon'] as int) : null,
       );
+
+  IconData? get icon => null;
 }
 

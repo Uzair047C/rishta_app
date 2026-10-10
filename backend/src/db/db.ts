@@ -26,6 +26,10 @@ abstract class Reader {
     return ((await this.query(sql, params)).rows[0] ?? null) as T | null;
   }
 
+  async oneOrNone<T>(sql: string, params: unknown[] = []): Promise<T | null> {
+    return ((await this.query(sql, params)).rows[0] ?? null) as T | null;
+  }
+
   async count(sql: string, params: unknown[] = []): Promise<number> {
     const rows = (await this.query(sql, params)).rows as { n: number | string }[];
     return Number(rows[0]?.n ?? 0);

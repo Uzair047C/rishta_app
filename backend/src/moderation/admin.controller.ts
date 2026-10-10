@@ -5,6 +5,7 @@ import {
   ExecutionContext,
   ForbiddenException,
   Get,
+  Headers,
   Injectable,
   Param,
   ParseUUIDPipe,
@@ -14,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { IsIn, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Auth, Principal } from '../auth/auth';
+import { Public } from '../auth/public.decorator';
 import { UsersService } from '../users/users.service';
 import { Db } from '../db/db';
 
@@ -31,25 +32,18 @@ class QueueActionDto {
 }
 
 /**
- * Minimal admin gate. An env allowlist rather than a users.is_admin column —
- * a schema change and a migration for a list that only changes at deploy time
- * is not worth it. Move to a role table when there is more than one kind of admin.
+ * Minimal admin gate. Uses an admin token from env (ADMIN_TOKEN) passed in
+ * Authorization header. Move to a role table when there is more than one kind of admin.
  */
 @Injectable()
 export class AdminGuard implements CanActivate {
-  constructor(
-    private readonly users: UsersService,
-  ) {}
-
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
-    const allowed = (process.env.ADMIN_USER_IDS ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const principal = ctx.switchToHttp().getRequest<{ auth?: Principal }>().auth;
-    if (!principal) throw new ForbiddenException('admin_only');
-    const user = await this.users.require(principal.uid);
-    if (!allowed.includes(user.id)) throw new ForbiddenException('admin_only');
+    const allowed = (process.env.ADMIN_TOKEN ?? '').trim();
+    if (!allowed) throw new ForbiddenException('admin_only');
+    const authHeader = ctx.switchToHttp().getRequest().headers['authorization'];
+    if (!authHeader || authHeader !== `Bearer ${allowed}`) {
+      throw new ForbiddenException('admin_only');
+    }
     return true;
   }
 }
@@ -108,8 +102,8 @@ export class AdminController {
 
   /** Reviewers are users too, so the id is resolved the same way. */
   @Get('whoami')
-  async whoami(@Auth() principal: Principal) {
-    const user = await this.users.require(principal.uid);
+  async whoami() {
+    const user = await this.users.require();
     return { userId: user.id };
   }
 }

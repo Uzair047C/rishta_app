@@ -63,9 +63,6 @@ class _PhotosScreenState extends ConsumerState<PhotosScreen> with FormProgress {
         File(picked.path),
       );
       await ref.read(myProfileProvider.notifier).addPhoto(url, makePrimary: primary);
-      // The server re-opens verification when the primary photo changes, so the
-      // caller must re-check status rather than assume the old verdict stands.
-      ref.invalidate(verificationProvider);
     });
   }
 

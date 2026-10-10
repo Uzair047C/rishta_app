@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Get, Headers, Post } from '@nestjs/common';
-import { Auth, Principal, Public } from '../auth/auth';
+import { Public } from '../auth/public.decorator';
 import { UsersService } from '../users/users.service';
 import { SubscriptionService, WebhookEvent } from './subscription.service';
 
@@ -10,15 +10,17 @@ export class SubscriptionController {
     private readonly users: UsersService,
   ) {}
 
+  @Public()
   @Get()
-  async getSubscription(@Auth() principal: Principal) {
-    const user = await this.users.require(principal.uid);
+  async getSubscription() {
+    const user = await this.users.require();
     return this.subscriptions.status(user.id);
   }
 
+  @Public()
   @Get('status')
-  async status(@Auth() principal: Principal) {
-    const user = await this.users.require(principal.uid);
+  async status() {
+    const user = await this.users.require();
     return this.subscriptions.status(user.id);
   }
 

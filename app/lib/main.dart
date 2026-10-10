@@ -1,12 +1,9 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/core.dart';
 import 'features/feed/feed_screen.dart';
 import 'features/matches/matches_screen.dart';
-import 'features/onboarding/photos_screen.dart';
-import 'features/onboarding/selfie_screen.dart';
 import 'features/settings/settings_screen.dart';
 
 /// Live theme mode state for dynamic light/dark toggling.
@@ -36,49 +33,9 @@ class RishtaApp extends ConsumerWidget {
       builder: (context, child) {
         return child ?? const SizedBox.shrink();
       },
-      home: const AppGate(),
+      home: const HomeShell(),
     );
   }
-}
-
-/// Single routing decision point. Everything downstream can assume a signed-in,
-/// onboarded, verified user — which is why no individual screen re-checks.
-class AppGate extends ConsumerWidget {
-  const AppGate({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // TEMP: Skip auth for inner feature development
-    return const HomeShell();
-  }
-
-  /// A finished selfie changes both the verification verdict and the session's
-  /// completeness, so both are re-read rather than assumed.
-  static void _refresh(WidgetRef ref) {
-    ref.invalidate(verificationProvider);
-    ref.invalidate(sessionProvider);
-  }
-}
-
-/// Profile -> photos -> selfie, in the order spec 2.6 lays out. The selfie step
-/// is part of onboarding, not an afterthought, so browsing is unreachable until
-/// it clears.
-class OnboardingFlow extends ConsumerStatefulWidget {
-  const OnboardingFlow({super.key});
-
-  @override
-  ConsumerState<OnboardingFlow> createState() => _OnboardingFlowState();
-}
-
-class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
-  int _step = 0;
-
-  @override
-  Widget build(BuildContext context) => switch (_step) {
-        0 => PhotosScreen(onNext: () => setState(() => _step = 1)),
-        1 => SelfieScreen(onDone: () => AppGate._refresh(ref)),
-        _ => SelfieScreen(onDone: () => AppGate._refresh(ref)), // Default case
-      };
 }
 
 /// Multi-breakpoint responsive navigation shell for the signed-in app.

@@ -4,17 +4,12 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/models.dart';
 import '../../core/providers.dart';
 import '../../core/storage.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 
-/// Spec 1.2 — live selfie capture, in-app camera only.
-///
-/// The gallery is not merely hidden here, it is unreachable: this widget holds a
-/// [CameraController] and renders its preview with a shutter. There is no image
-/// picker in this file, so no code path can substitute a stored photo.
+/// Live selfie capture for profile photo, in-app camera only.
 class SelfieScreen extends ConsumerStatefulWidget {
   const SelfieScreen({super.key, required this.onDone});
 
@@ -27,7 +22,6 @@ class SelfieScreen extends ConsumerStatefulWidget {
 class _SelfieScreenState extends ConsumerState<SelfieScreen>
     with WidgetsBindingObserver, FormProgress {
   CameraController? _camera;
-  String? _sessionId;
 
   @override
   void initState() {
@@ -47,7 +41,6 @@ class _SelfieScreenState extends ConsumerState<SelfieScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final camera = _camera;
     if (camera == null || !camera.value.isInitialized) return;
-    // The OS reclaims the camera when the app backgrounds; re-init on return.
     if (state == AppLifecycleState.inactive) {
       camera.dispose();
     } else if (state == AppLifecycleState.resumed) {
@@ -70,28 +63,12 @@ class _SelfieScreenState extends ConsumerState<SelfieScreen>
         return;
       }
       setState(() => _camera = controller);
-      await _openLivenessSession();
     } on CameraException catch (e) {
       if (mounted) {
         fail(e.code == 'CameraAccessDenied'
-            ? 'Camera access is needed to verify you. Enable it in Settings and try again.'
+            ? 'Camera access is needed. Enable it in Settings and try again.'
             : 'Could not start the camera.');
       }
-    }
-  }
-
-  /// Server-side liveness session. The face-match runs against its reference
-  /// image, so a session must exist before a selfie is worth submitting.
-  Future<void> _openLivenessSession() async {
-    try {
-      final res = await ref.read(apiProvider).post<Map<String, dynamic>>(
-        '/verification/liveness-session',
-        parse: (j) => j as Map<String, dynamic>,
-      );
-      if (mounted) setState(() => _sessionId = res['sessionId'] as String?);
-    } catch (e) {
-      // Non-fatal: the development passthrough has no session to open.
-      if (mounted) setState(() => _sessionId = null);
     }
   }
 
@@ -104,18 +81,9 @@ class _SelfieScreenState extends ConsumerState<SelfieScreen>
       final userId = ref.read(myProfileProvider).valueOrNull?.userId ?? 'unknown';
       final url = await Storage.upload(Storage.pathFor(userId, 'selfies'), File(shot.path));
 
-      await ref.read(verificationProvider.notifier).submit(
-            livenessSessionId: _sessionId,
-            selfieUrl: url,
-          );
-
-      final result = ref.read(verificationProvider).valueOrNull;
-      if (!mounted) return;
-      if (result?.isVerified ?? false) {
-        widget.onDone();
-      } else {
-        fail('We could not verify that photo. Make sure your face is well lit and clearly visible.');
-      }
+      // Add as a profile photo (not verification)
+      await ref.read(myProfileProvider.notifier).addPhoto(url, makePrimary: false);
+      widget.onDone();
     });
   }
 
@@ -124,7 +92,7 @@ class _SelfieScreenState extends ConsumerState<SelfieScreen>
     final camera = _camera;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Verify it’s you')),
+      appBar: AppBar(title: const Text('Take a selfie')),
       body: Column(
         children: [
           Expanded(
@@ -144,7 +112,7 @@ class _SelfieScreenState extends ConsumerState<SelfieScreen>
             child: Column(
               children: [
                 Text(
-                  'Take a live selfie. We compare it with your main photo — this is what keeps Rishta free of fake profiles.',
+                  'Take a selfie to add to your profile.',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
@@ -156,70 +124,12 @@ class _SelfieScreenState extends ConsumerState<SelfieScreen>
                 FilledButton.icon(
                   onPressed: busy || camera == null ? null : _capture,
                   icon: const Icon(Icons.camera_alt),
-                  label: Text(busy ? 'Checking…' : 'Take selfie'),
+                  label: Text(busy ? 'Saving…' : 'Take selfie'),
                 ),
               ],
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Spec 1.2 — unverified accounts see this instead of the browsing feed.
-class VerificationPendingScreen extends ConsumerWidget {
-  const VerificationPendingScreen({super.key, required this.onRetry});
-
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final status = ref.watch(verificationProvider);
-
-    return Scaffold(
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(Tokens.spaceLg),
-          child: AsyncView(
-            value: status,
-            onRetry: () => ref.invalidate(verificationProvider),
-            builder: (value) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  value == VerificationStatus.failed ? Icons.error_outline : Icons.hourglass_top,
-                  size: 48,
-                  semanticLabel: value == VerificationStatus.failed ? 'Verification failed' : 'Verification pending',
-                ),
-                const SizedBox(height: Tokens.spaceMd),
-                Text(
-                  value == VerificationStatus.failed
-                      ? 'We could not verify your selfie.'
-                      : 'Your verification is being reviewed.',
-                  style: Theme.of(context).textTheme.titleMedium,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: Tokens.spaceSm),
-                Text(
-                  value == VerificationStatus.failed
-                      ? 'Try again with good lighting and no glasses.'
-                      : 'You will be able to browse as soon as it clears.',
-                  style: Theme.of(context).textTheme.bodyMedium,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: Tokens.spaceLg),
-                if (value == VerificationStatus.failed)
-                  FilledButton(onPressed: onRetry, child: const Text('Try again'))
-                else
-                  OutlinedButton(
-                    onPressed: () => ref.invalidate(verificationProvider),
-                    child: const Text('Check again'),
-                  ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

@@ -14,7 +14,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { Auth, Principal, Public } from '../auth/auth';
+import { Public } from '../auth/public.decorator';
 import { UsersService } from '../users/users.service';
 import { ProfileInput, ProfileService } from './profile.service';
 import { Gender, MaritalStatus, ReligiousPracticeLevel, Sect } from '../db/types';
@@ -120,27 +120,31 @@ export class ProfileController {
     return this.profiles.personalityTraits();
   }
 
+  @Public()
   @Get()
-  async me(@Auth() principal: Principal) {
-    const user = await this.users.require(principal.uid);
+  async me() {
+    const user = await this.users.require();
     return this.profiles.me(user.id);
   }
 
+  @Public()
   @Post()
-  async save(@Auth() principal: Principal, @Body() dto: ProfileDto) {
-    const user = await this.users.require(principal.uid);
+  async save(@Body() dto: ProfileDto) {
+    const user = await this.users.require();
     return this.profiles.upsert(user, dto);
   }
 
+  @Public()
   @Post('photo')
-  async addPhoto(@Auth() principal: Principal, @Body() dto: PhotoDto) {
-    const user = await this.users.require(principal.uid);
+  async addPhoto(@Body() dto: PhotoDto) {
+    const user = await this.users.require();
     return this.profiles.addPhoto(user.id, dto.url, dto.makePrimary);
   }
 
+  @Public()
   @Post('photos')
-  async setPhotos(@Auth() principal: Principal, @Body() dto: SetPhotosDto) {
-    const user = await this.users.require(principal.uid);
+  async setPhotos(@Body() dto: SetPhotosDto) {
+    const user = await this.users.require();
     return this.profiles.setPhotos(user.id, dto.urls);
   }
 }
