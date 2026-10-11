@@ -19,9 +19,19 @@ export class UsersService {
   }
 
   /** Same, but also rejects callers who have not finished onboarding. */
-  async requireOnboarded(): Promise<UserRow> {
-    const user = await this.require();
-    if (!user.gender) throw new ForbiddenException('profile_incomplete');
+  async requireOnboarded(userId?: number): Promise<UserRow> {
+    const user = userId
+      ? await this.db.oneOrNone<UserRow>('SELECT * FROM users WHERE id = $1', [userId])
+      : await this.require();
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const profile = await this.db.oneOrNone('SELECT 1 FROM profiles WHERE user_id = $1', [user.id]);
+    if (!profile) {
+      throw new ForbiddenException('profile_incomplete');
+    }
     return user;
   }
 
@@ -37,5 +47,29 @@ export class UsersService {
       );
     }
     return user!;
+  }
+
+  /**
+   * Find or create a user by Google ID.
+   * Uses email as the unique identifier; creates a new user if none exists.
+   */
+  async findOrCreateByGoogleId(googleId: string, profileInfo: {
+    email?: string;
+    firstName?: string;
+    lastName?: string;
+  }): Promise<UserRow> {
+    const email = profileInfo.email;
+    if (!email) {
+      throw new Error('Email not provided from Google');
+    }
+
+    let user = await this.db.oneOrNone<UserRow>('SELECT * FROM users WHERE email = $1', [email]);
+    if (!user) {
+      user = await this.db.one<UserRow>(
+        'INSERT INTO users (email, phone, phone_verified, gender, dob, location, lat, lng, device_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
+        [email, null, false, null, null, null, null, null, null]
+      );
+    }
+    return user;
   }
 }
