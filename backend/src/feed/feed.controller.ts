@@ -29,8 +29,6 @@ export class FeedController {
     private readonly users: UsersService,
   ) {}
 
-  /** Only verified, onboarded profiles see a feed at all. */
-  @Public()
   @Get()
   async list(@Query() query: FeedQuery) {
     const user = await this.users.requireOnboarded();
@@ -42,14 +40,14 @@ export class FeedController {
   @Public()
   @Post('like')
   async like(@Body() dto: TargetDto) {
-    const user = await this.users.requireOnboarded();
+    const user = await this.users.require();
     return this.feed.like(user, dto.userId);
   }
 
   @Public()
   @Post('pass')
   async pass(@Body() dto: TargetDto) {
-    const user = await this.users.requireOnboarded();
+    const user = await this.users.require();
     return this.feed.pass(user, dto.userId);
   }
 

@@ -10,14 +10,9 @@ export class MatchesController {
     private readonly users: UsersService,
   ) {}
 
-  /**
-   * Spec 1.2 — reads are deliberately NOT gated on subscription status. An
-   * expired plan must not lock existing conversation.
-   */
-  @Public()
   @Get()
   async list() {
-    const user = await this.users.require();
+    const user = await this.users.requireOnboarded();
     const matches = await this.db.all(
       `SELECT m.id AS match_id, m.matched_at,
               u.id AS user_id, u.gender, u.location,

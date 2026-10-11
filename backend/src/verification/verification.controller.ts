@@ -22,7 +22,7 @@ export class VerificationController {
   @Public()
   @Post('liveness-session')
   async livenessSession() {
-    await this.users.requireOnboarded();
+    await this.users.require();
     return this.verification.createLivenessSession();
   }
 
@@ -30,7 +30,7 @@ export class VerificationController {
   @Public()
   @Post('selfie')
   async selfie(@Body() dto: SelfieDto) {
-    const user = await this.users.requireOnboarded();
+    const user = await this.users.require();
     return this.verification.submit(user, dto.livenessSessionId, dto.selfieUrl);
   }
 
