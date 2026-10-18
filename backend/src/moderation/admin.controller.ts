@@ -102,8 +102,7 @@ export class AdminController {
 
   /** Reviewers are users too, so the id is resolved the same way. */
   @Get('whoami')
-  async whoami() {
-    const user = await this.users.require();
-    return { userId: user.id };
+  async whoami(@CurrentUser() userId: string) {
+    return { userId };
   }
 }

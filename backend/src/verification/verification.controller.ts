@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import { IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
 import { Public } from '../auth/public.decorator';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { UsersService } from '../users/users.service';
 import { VerificationService } from './verification.service';
 
@@ -19,26 +20,23 @@ export class VerificationController {
   ) {}
 
   /** Step 1 — client records a liveness video into this session. */
-  @Public()
   @Post('liveness-session')
-  async livenessSession() {
-    await this.users.require();
+  async livenessSession(@CurrentUser() userId: string) {
+    const user = await this.users.require(userId);
     return this.verification.createLivenessSession();
   }
 
   /** Step 2 — server pulls the liveness result and face-matches it. */
-  @Public()
   @Post('selfie')
-  async selfie(@Body() dto: SelfieDto) {
-    const user = await this.users.require();
+  async selfie(@CurrentUser() userId: string, @Body() dto: SelfieDto) {
+    const user = await this.users.require(userId);
     return this.verification.submit(user, dto.livenessSessionId, dto.selfieUrl);
   }
 
   /** Drives the pending/verified/failed screen. */
-  @Public()
   @Get('status')
-  async status() {
-    const user = await this.users.require();
+  async status(@CurrentUser() userId: string) {
+    const user = await this.users.require(userId);
     return this.verification.status(user.id);
   }
 }

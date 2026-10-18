@@ -1,5 +1,6 @@
 import { Controller, Delete, Get, NotFoundException, Param, ParseUUIDPipe } from '@nestjs/common';
 import { Public } from '../auth/public.decorator';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { UsersService } from '../users/users.service';
 import { Db } from '../db/db';
 
@@ -11,8 +12,8 @@ export class MatchesController {
   ) {}
 
   @Get()
-  async list() {
-    const user = await this.users.requireOnboarded();
+  async list(@CurrentUser() userId: string) {
+    const user = await this.users.requireOnboarded(userId);
     const matches = await this.db.all(
       `SELECT m.id AS match_id, m.matched_at,
               u.id AS user_id, u.gender, u.location,
@@ -35,10 +36,9 @@ export class MatchesController {
   }
 
   /** Spec 1.2 — unmatch is distinct from report/block; it only ends the match. */
-  @Public()
   @Delete(':id')
-  async unmatch(@Param('id', ParseUUIDPipe) id: string) {
-    const user = await this.users.require();
+  async unmatch(@CurrentUser() userId: string, @Param('id', ParseUUIDPipe) id: string) {
+    const user = await this.users.require(userId);
     const updated = await this.db.query(
       `UPDATE matches SET unmatched_at = now()
         WHERE id = $1 AND unmatched_at IS NULL AND (user_a_id = $2 OR user_b_id = $2)

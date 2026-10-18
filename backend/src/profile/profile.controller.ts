@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import {
   IsArray,
   IsBoolean,
@@ -16,6 +16,8 @@ import {
 } from 'class-validator';
 import { Public } from '../auth/public.decorator';
 import { UsersService } from '../users/users.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { ProfileInput, ProfileService } from './profile.service';
 import { Gender, MaritalStatus, ReligiousPracticeLevel, Sect } from '../db/types';
 
@@ -71,7 +73,6 @@ export class ProfileController {
   ) {}
 
   /** Closed tag set — what makes interest-overlap ranking computable. */
-  @Public()
   @Get('interests')
   async tags() {
     const [interests, languages] = await Promise.all([
@@ -120,32 +121,28 @@ export class ProfileController {
     return this.profiles.personalityTraits();
   }
 
-  @Public()
   @Get()
-  async me() {
-    const user = await this.users.require();
-    return this.profiles.me(user.id);
+  @UseGuards(JwtAuthGuard)
+  async me(@CurrentUser() userId: string) {
+    return this.profiles.me(userId);
   }
 
-  @Public()
   @Post()
-  async save(@Body() dto: ProfileDto) {
-    const user = await this.users.require();
-    return this.profiles.upsert(user, dto);
+  @UseGuards(JwtAuthGuard)
+  async save(@CurrentUser() userId: string, @Body() dto: ProfileDto) {
+    return this.profiles.upsert(userId, dto);
   }
 
-  @Public()
   @Post('photo')
-  async addPhoto(@Body() dto: PhotoDto) {
-    const user = await this.users.require();
-    return this.profiles.addPhoto(user.id, dto.url, dto.makePrimary);
+  @UseGuards(JwtAuthGuard)
+  async addPhoto(@CurrentUser() userId: string, @Body() dto: PhotoDto) {
+    return this.profiles.addPhoto(userId, dto.url, dto.makePrimary);
   }
 
-  @Public()
   @Post('photos')
-  async setPhotos(@Body() dto: SetPhotosDto) {
-    const user = await this.users.require();
-    return this.profiles.setPhotos(user.id, dto.urls);
+  @UseGuards(JwtAuthGuard)
+  async setPhotos(@CurrentUser() userId: string, @Body() dto: SetPhotosDto) {
+    return this.profiles.setPhotos(userId, dto.urls);
   }
 }
 

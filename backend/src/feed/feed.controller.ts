@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { Public } from '../auth/public.decorator';
 import { UsersService } from '../users/users.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { FeedFilters, FeedService } from './feed.service';
 
 class FeedQuery implements FeedFilters {
@@ -30,31 +32,28 @@ export class FeedController {
   ) {}
 
   @Get()
-  async list(@Query() query: FeedQuery) {
-    const user = await this.users.requireOnboarded();
-    return { candidates: await this.feed.feed(user, query) };
+  @UseGuards(JwtAuthGuard)
+  async list(@CurrentUser() userId: string, @Query() query: FeedQuery) {
+    return { candidates: await this.feed.feed(userId, query) };
   }
 
   /** Stricter limit than the global default — this is a write with a quota. */
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
-  @Public()
   @Post('like')
-  async like(@Body() dto: TargetDto) {
-    const user = await this.users.require();
-    return this.feed.like(user, dto.userId);
+  @UseGuards(JwtAuthGuard)
+  async like(@CurrentUser() userId: string, @Body() dto: TargetDto) {
+    return this.feed.like(userId, dto.userId);
   }
 
-  @Public()
   @Post('pass')
-  async pass(@Body() dto: TargetDto) {
-    const user = await this.users.require();
-    return this.feed.pass(user, dto.userId);
+  @UseGuards(JwtAuthGuard)
+  async pass(@CurrentUser() userId: string, @Body() dto: TargetDto) {
+    return this.feed.pass(userId, dto.userId);
   }
 
-  @Public()
   @Post('block')
-  async block(@Body() dto: BlockDto) {
-    const user = await this.users.require();
-    return this.feed.block(user, dto.userId, dto.reason);
+  @UseGuards(JwtAuthGuard)
+  async block(@CurrentUser() userId: string, @Body() dto: BlockDto) {
+    return this.feed.block(userId, dto.userId, dto.reason);
   }
 }
