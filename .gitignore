@@ -85,6 +85,14 @@ logs_problem.logs
 node_modules/
 backend/dist/
 backend/node_modules/
-*.env*
+*.env
 !*.env.example
+
+# Claude Code
+.claude/memory/
+.idea/
+
+# Logs
+logs_problem.logs
+debug_*.py
 
