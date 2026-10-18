@@ -48,7 +48,7 @@ export class AuthService {
         }
       };
     } catch (error) {
-      if error instanceof UnauthorizedException {
+      if (error instanceof UnauthorizedException) {
         throw error;
       }
       throw new UnauthorizedException('Invalid Google ID token');

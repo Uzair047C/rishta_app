@@ -32,7 +32,7 @@ export class FeedService {
     private readonly subscriptions: SubscriptionService,
   ) {}
 
-  async feed(user: UserRow, f: FeedFilters): Promise<FeedCard[]> {
+  async feed(userId: string, f: FeedFilters): Promise<FeedCard[]> {
     const limit = Math.min(Math.max(f.limit ?? 20, 1), 50);
     const offset = Math.max(f.offset ?? 0, 0);
 
@@ -87,7 +87,7 @@ export class FeedService {
   }
 
   /** Spec 2.3 — atomic quota check + decrement, then like and possible match. */
-  async like(user: UserRow, targetId: string): Promise<LikeOutcome> {
+  async like(userId: string, targetId: string): Promise<LikeOutcome> {
     if (user.id === targetId) throw new BadRequestException('cannot_like_self');
 
     const blocked = await this.db.count(
