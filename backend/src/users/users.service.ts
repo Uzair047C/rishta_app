@@ -15,7 +15,7 @@ export class UsersService {
         [null, null, false, null, null, null, null, null, null]
       );
     }
-    return user;
+    return user!;
   }
 
   /** Same, but also rejects callers who have not finished onboarding. */
@@ -46,7 +46,7 @@ export class UsersService {
         [null, null, false, null, null, null, null, null, deviceId ?? null]
       );
     }
-    return user;
+    return user!;
   }
 
   /**
@@ -70,6 +70,6 @@ export class UsersService {
         [email, null, false, null, null, null, null, null, null]
       );
     }
-    return user;
+    return user!;
   }
 }

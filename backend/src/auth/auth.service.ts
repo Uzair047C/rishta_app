@@ -20,7 +20,7 @@ export class AuthService {
   }
 
   async googleCallback(req: Request, res: Response): Promise<void> {
-    const user = req.user as UserRow;
+    const user = (req as any).user as UserRow;
     if (!user) {
       throw new UnauthorizedException('User not found from Google callback');
     }
