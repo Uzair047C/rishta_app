@@ -74,7 +74,7 @@ Thus, the finding is confirmed: CORS is too permissive, and AdminGuard uses stri
 
 ### Finding 6: Storage.upload in app/lib/core/storage.dart returns a fake mock-bucket URL. Flutter default API_BASE is localhost:3001 but the backend defaults to 3000. Android/iOS id is com.example.rishta; Android release uses the debug signing config; no google-services files exist (not needed for Option A).
 
-**Status: CONFIRMED**
+**Status: PARTIALLY CONFIRMED**
 
 - Storage.upload (storage.dart lines 7-16) returns a mock URL: 'https://storage.googleapis.com/mock-bucket/$filename'. It does not perform actual upload.
 - The Flutter default API_BASE is set in api.dart line 67: `const String.fromEnvironment('API_BASE', defaultValue: 'http://localhost:3000');` So it defaults to localhost:3000, not 3001. The finding says Flutter default API_BASE is localhost:3001, which is incorrect. However, we note that the backend default port is also 3000 (from main.ts line 41: `const port = Number(process.env.PORT ?? 3000);`). So both default to 3000, which is consistent. The finding may have mistaken the default.
