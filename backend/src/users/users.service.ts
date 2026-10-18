@@ -15,11 +15,11 @@ export class UsersService {
         [null, null, false, null, null, null, null, null, null]
       );
     }
-    return user!;
+    return user;
   }
 
   /** Same, but also rejects callers who have not finished onboarding. */
-  async requireOnboarded(userId?: number): Promise<UserRow> {
+  async requireOnboarded(userId?: string): Promise<UserRow> {
     const user = userId
       ? await this.db.oneOrNone<UserRow>('SELECT * FROM users WHERE id = $1', [userId])
       : await this.require();
@@ -46,7 +46,7 @@ export class UsersService {
         [null, null, false, null, null, null, null, null, deviceId ?? null]
       );
     }
-    return user!;
+    return user;
   }
 
   /**
