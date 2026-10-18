@@ -16,9 +16,10 @@ export class AuthService {
   async validateGoogleIdToken(idToken: string): Promise<{ email: string; googleId: string; emailVerified: boolean; name?: { givenName?: string; familyName?: string } }> {
     try {
       const client = new OAuth2Client();
+      const audience = this.configService.get<string[]>('GOOGLE_CLIENT_IDS') ?? [];
       const ticket = await client.verifyIdToken({
         idToken,
-        audience: this.configService.get<string[]>('GOOGLE_CLIENT_IDS').filter(Boolean),
+        audience: audience.filter(Boolean),
       });
       const payload = ticket.getPayload();
 
@@ -38,12 +39,12 @@ export class AuthService {
       }
 
       return {
-        email: payload.email,
-        googleId: payload.sub,
-        emailVerified: payload.email_verified,
+        email: payload.email ?? '',
+        googleId: payload.sub ?? '',
+        emailVerified: payload.email_verified ?? false,
         name: {
-          givenName: payload.given_name,
-          familyName: payload.family_name,
+          givenName: payload.given_name ?? undefined,
+          familyName: payload.family_name ?? undefined,
         }
       };
     } catch (error) {
