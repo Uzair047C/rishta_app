@@ -64,7 +64,7 @@ class Api {
   Api({http.Client? client, String? baseUrl})
       : _client = client ?? http.Client(),
         _base = baseUrl ??
-            const String.fromEnvironment('API_BASE', defaultValue: 'http://localhost:3001');
+            const String.fromEnvironment('API_BASE', defaultValue: 'http://localhost:3000');
 
   final http.Client _client;
   final String _base;
