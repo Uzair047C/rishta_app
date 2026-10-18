@@ -34,6 +34,20 @@ async function main() {
   await client.query(schema);
   console.log('schema.sql applied.');
 
+  // Apply migrations in order
+  const migrationsDir = path.join(base, 'sql', 'migrations');
+  if (fs.existsSync(migrationsDir)) {
+    const migrationFiles = fs.readdirSync(migrationsDir)
+      .filter(f => f.endsWith('.sql'))
+      .sort();
+    for (const file of migrationFiles) {
+      const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+      console.log(`Applying migration ${file} (${sql.length} bytes) …`);
+      await client.query(sql);
+      console.log(`Migration ${file} applied.`);
+    }
+  }
+
   console.log(`Applying seed.sql (${seed.length} bytes) …`);
   await client.query(seed);
   console.log('seed.sql applied. Done.');

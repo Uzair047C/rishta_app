@@ -1,7 +1,7 @@
-import { Controller, Post, Body, Get, Req, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Get, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { Public } from './public.decorator';
-import { Request } from 'express';
 import { CurrentUser } from './current-user.decorator';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
@@ -9,22 +9,43 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('google')
   @Public()
   async googleLogin(@Body() { idToken }: { idToken: string }) {
     return this.authService.googleLogin(idToken);
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('refresh')
+  @Public()
+  async refresh(@Body() { refreshToken }: { refreshToken: string }) {
+    return this.authService.refreshAccessToken(refreshToken);
+  }
+
   @Post('logout')
-  async logout() {
-    return this.authService.logout();
+  @HttpCode(HttpStatus.OK)
+  async logout(@CurrentUser() userId: string, @Body() { refreshToken }: { refreshToken?: string }) {
+    return this.authService.logout(userId, refreshToken);
   }
 
   @Get('me')
-  @UseGuards(JwtAuthGuard)
   async getProfile(@CurrentUser() userId: string) {
-    // This will be handled by the service, but we need to return user data
-    // For now, we'll return the userId - the actual implementation would fetch user data
-    return { userId };
+    const user = await this.authService.validateUser(userId);
+    if (!user) {
+      return { userId: null };
+    }
+    return {
+      userId: user.id,
+      email: user.email,
+      emailVerified: user.email_verified,
+      authProvider: user.auth_provider,
+      createdAt: user.created_at,
+    };
+  }
+
+  @Get('stream-token')
+  async getStreamToken(@CurrentUser() userId: string) {
+    return this.authService.getStreamToken(userId);
   }
 }

@@ -469,9 +469,9 @@ export class ProfileService {
     }));
   }
 
-  async upsert(user: UserRow, dto: ProfileInput) {
+  async upsert(userId: string, dto: ProfileInput) {
     const bio = dto.bio ?? '';
-    const screening = await this.moderation.screenText(bio, user.id, 'bio', user.id);
+    const screening = await this.moderation.screenText(bio, userId, 'bio', userId);
 
     try {
       await this.db.tx(async (conn) => {
@@ -486,7 +486,7 @@ export class ProfileService {
                lat = COALESCE($5, lat),
                lng = COALESCE($6, lng)
              WHERE id = $1`,
-            [user.id, dto.gender ?? null, dto.dob ?? null, dto.location ?? null, dto.lat ?? null, dto.lng ?? null],
+            [userId, dto.gender ?? null, dto.dob ?? null, dto.location ?? null, dto.lat ?? null, dto.lng ?? null],
           );
         }
 
@@ -515,7 +515,7 @@ export class ProfileService {
              bio_flagged = EXCLUDED.bio_flagged,
              updated_at = now()`,
           [
-            user.id,
+            userId,
             dto.name ?? null,
             bio,
             dto.education ?? null,
@@ -535,10 +535,10 @@ export class ProfileService {
         );
 
         if (dto.interestIds !== undefined) {
-          await this.replaceTags(conn, 'user_interests', 'interest_id', user.id, dto.interestIds);
+          await this.replaceTags(conn, 'user_interests', 'interest_id', userId, dto.interestIds);
         }
         if (dto.languageIds !== undefined) {
-          await this.replaceTags(conn, 'user_languages', 'language_id', user.id, dto.languageIds);
+          await this.replaceTags(conn, 'user_languages', 'language_id', userId, dto.languageIds);
         }
       });
     } catch (err) {
@@ -548,7 +548,7 @@ export class ProfileService {
       throw err;
     }
 
-    return this.me(user.id);
+    return this.me(userId);
   }
 
   /**

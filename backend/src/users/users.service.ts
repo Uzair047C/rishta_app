@@ -40,7 +40,7 @@ export class UsersService {
         [null, null, false, null, null, null, null, null, deviceId ?? null]
       );
     }
-    return user;
+    return user!;
   }
 
   /**
@@ -82,7 +82,7 @@ export class UsersService {
 
     if (user) {
       // Check if this user already has a provider identity
-      const existingProvider = await this.db.oneOrNone(
+      const existingProvider = await this.db.oneOrNone<{ auth_provider: string | null; provider_subject: string | null }>(
         'SELECT auth_provider, provider_subject FROM users WHERE id = $1 AND auth_provider IS NOT NULL',
         [user.id]
       );
@@ -130,11 +130,20 @@ export class UsersService {
         true  // email_verified
       ]
     );
-    return user;
+    return user!;
   }
 
   /** Find a user by ID. Returns null if not found. */
   async findOne(userId: string): Promise<UserRow | null> {
     return this.db.oneOrNone<UserRow>('SELECT * FROM users WHERE id = $1', [userId]);
+  }
+
+  /** Find a user by ID. Throws if not found. */
+  async findOneOrFail(userId: string): Promise<UserRow> {
+    const user = await this.db.oneOrNone<UserRow>('SELECT * FROM users WHERE id = $1', [userId]);
+    if (!user) {
+      throw new Error('User not found');
+    }
+    return user!;
   }
 }

@@ -16,8 +16,10 @@ import {
 import { IsIn, IsOptional, IsString } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Public } from '../auth/public.decorator';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { UsersService } from '../users/users.service';
 import { Db } from '../db/db';
+import * as crypto from 'crypto';
 
 const QUEUE_STATUSES = ['open', 'reviewing', 'actioned', 'dismissed'] as const;
 
@@ -41,7 +43,12 @@ export class AdminGuard implements CanActivate {
     const allowed = (process.env.ADMIN_TOKEN ?? '').trim();
     if (!allowed) throw new ForbiddenException('admin_only');
     const authHeader = ctx.switchToHttp().getRequest().headers['authorization'];
-    if (!authHeader || authHeader !== `Bearer ${allowed}`) {
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      throw new ForbiddenException('admin_only');
+    }
+    const provided = authHeader.substring(7);
+    // Timing-safe comparison
+    if (provided.length !== allowed.length || !crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(allowed))) {
       throw new ForbiddenException('admin_only');
     }
     return true;

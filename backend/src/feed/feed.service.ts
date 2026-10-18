@@ -36,8 +36,14 @@ export class FeedService {
     const limit = Math.min(Math.max(f.limit ?? 20, 1), 50);
     const offset = Math.max(f.offset ?? 0, 0);
 
+    // Get current user's lat/lng
+    const me = await this.db.one<{ gender: string; lat: number | null; lng: number | null }>(
+      'SELECT gender, lat, lng FROM users WHERE id = $1',
+      [userId],
+    );
+
     return this.db.all<FeedCard>(
-      `WITH me AS (SELECT gender, lat, lng FROM users WHERE id = $1),
+      `WITH me AS (SELECT $2::float8 AS lat, $3::float8 AS lng),
             mine AS (SELECT interest_id FROM user_interests WHERE user_id = $1),
             candidates AS (
          SELECT u.id AS user_id, u.gender, u.location,
@@ -78,22 +84,22 @@ export class FeedService {
        SELECT * FROM candidates
         -- No location on either side means we cannot filter, so we show rather
         -- than silently empty the feed.
-        WHERE ($6::float8 IS NULL OR distance_km IS NULL OR distance_km <= $6::float8)
+        WHERE ($5::float8 IS NULL OR distance_km IS NULL OR distance_km <= $5::float8)
         -- Spec 1.2: ranked by interest-tag overlap. Distance and recency break ties.
         ORDER BY shared_interests DESC, distance_km ASC NULLS LAST, user_id
-        LIMIT $7 OFFSET $8`,
-      [user.id, user.lat, user.lng, f.minAge ?? null, f.maxAge ?? null, f.radiusKm ?? null, limit, offset],
+        LIMIT $6 OFFSET $7`,
+      [userId, me?.lat ?? null, me?.lng ?? null, f.minAge ?? null, f.maxAge ?? null, f.radiusKm ?? null, limit, offset],
     );
   }
 
   /** Spec 2.3 — atomic quota check + decrement, then like and possible match. */
   async like(userId: string, targetId: string): Promise<LikeOutcome> {
-    if (user.id === targetId) throw new BadRequestException('cannot_like_self');
+    if (userId === targetId) throw new BadRequestException('cannot_like_self');
 
     const blocked = await this.db.count(
       `SELECT count(*)::int AS n FROM blocks
         WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)`,
-      [user.id, targetId],
+      [userId, targetId],
     );
     if (blocked) throw new ConflictException('blocked');
 
@@ -102,7 +108,7 @@ export class FeedService {
 
     // A user who has never opened the subscription screen has no row yet, and
     // the decrement below would report zero rows as "inactive".
-    await this.subscriptions.ensure(user.id);
+    await this.subscriptions.ensure(userId);
 
     return this.db.tx(async (conn) => {
       // Never read-then-write: the WHERE clause is the concurrency control, so a
@@ -114,14 +120,14 @@ export class FeedService {
             AND status = 'active'
             AND likes_remaining_today > 0
         RETURNING likes_remaining_today`,
-        [user.id],
+        [userId],
       );
 
       if (!decremented.rowCount) {
         // Zero rows is ambiguous, so ask why once the write has already failed.
         const sub = await conn.query(
           'SELECT status, likes_remaining_today FROM subscriptions WHERE user_id = $1',
-          [user.id],
+          [userId],
         );
         const row = sub.rows[0] as { status: string; likes_remaining_today: number } | undefined;
         if (!row || row.status !== 'active') throw new ConflictException('subscription_inactive');
@@ -131,18 +137,18 @@ export class FeedService {
       await conn.query(
         `INSERT INTO likes (from_user_id, to_user_id) VALUES ($1, $2)
          ON CONFLICT (from_user_id, to_user_id) DO NOTHING`,
-        [user.id, targetId],
+        [userId, targetId],
       );
 
       const reciprocal = await conn.query(
         'SELECT 1 FROM likes WHERE from_user_id = $2 AND to_user_id = $1',
-        [user.id, targetId],
+        [userId, targetId],
       );
       if (!reciprocal.rowCount) {
         const remaining = (decremented.rows[0] as { likes_remaining_today: number }).likes_remaining_today;
         // Fire-and-forget outside the transaction would be better once volume
         // justifies a queue; inline keeps it simple at MVP.
-        void this.push.toUser(targetId, 'new_like', { fromUserId: user.id });
+        void this.push.toUser(targetId, 'new_like', { fromUserId: userId });
         return { liked: true, matched: false, matchId: null, likesRemainingToday: remaining };
       }
 
@@ -152,47 +158,47 @@ export class FeedService {
          VALUES (least($1::uuid, $2::uuid), greatest($1::uuid, $2::uuid))
          ON CONFLICT (user_a_id, user_b_id) DO UPDATE SET unmatched_at = NULL
          RETURNING id`,
-        [user.id, targetId],
+        [userId, targetId],
       );
       const matchId = (match.rows[0] as { id: string }).id;
 
       void this.push.toUser(targetId, 'new_match', { matchId });
-      void this.push.toUser(user.id, 'new_match', { matchId });
+      void this.push.toUser(userId, 'new_match', { matchId });
 
       const remaining = (decremented.rows[0] as { likes_remaining_today: number }).likes_remaining_today;
       return { liked: true, matched: true, matchId, likesRemainingToday: remaining };
     });
   }
 
-  async pass(user: UserRow, targetId: string): Promise<{ passed: true }> {
-    if (user.id === targetId) throw new BadRequestException('cannot_pass_self');
+  async pass(userId: string, targetId: string): Promise<{ passed: true }> {
+    if (userId === targetId) throw new BadRequestException('cannot_pass_self');
     await this.db.query(
       `INSERT INTO passes (user_id, passed_user_id) VALUES ($1, $2)
        ON CONFLICT (user_id, passed_user_id) DO NOTHING`,
-      [user.id, targetId],
+      [userId, targetId],
     );
     return { passed: true };
   }
 
   /** Spec 1.2 — block removes the pair from both feeds and ends any match. */
-  async block(user: UserRow, targetId: string, reason?: string): Promise<{ blocked: true }> {
-    if (user.id === targetId) throw new BadRequestException('cannot_block_self');
+  async block(userId: string, targetId: string, reason?: string): Promise<{ blocked: true }> {
+    if (userId === targetId) throw new BadRequestException('cannot_block_self');
     await this.db.tx(async (conn) => {
       await conn.query(
         `INSERT INTO blocks (blocker_id, blocked_id) VALUES ($1, $2)
          ON CONFLICT (blocker_id, blocked_id) DO NOTHING`,
-        [user.id, targetId],
+        [userId, targetId],
       );
       await conn.query(
         `UPDATE matches SET unmatched_at = now()
           WHERE unmatched_at IS NULL
             AND ((user_a_id = $1 AND user_b_id = $2) OR (user_a_id = $2 AND user_b_id = $1))`,
-        [user.id, targetId],
+        [userId, targetId],
       );
       if (reason) {
         await conn.query(
           'INSERT INTO reports (reporter_id, reported_id, reason) VALUES ($1, $2, $3)',
-          [user.id, targetId, reason],
+          [userId, targetId, reason],
         );
       }
     });

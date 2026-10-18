@@ -20,6 +20,8 @@ import { NotificationsController } from './notifications/notifications.controlle
 import { PushService } from './notifications/push.service';
 import { ModerationService } from './moderation/moderation.service';
 import { AdminController, AdminGuard } from './moderation/admin.controller';
+import { AuthModule } from './auth/auth.module';
+import { JwtAuthGuard } from './auth/jwt-auth.guard';
 
 @Module({
   imports: [
@@ -28,6 +30,7 @@ import { AdminController, AdminGuard } from './moderation/admin.controller';
     // Spec 2.1 — global baseline; auth, like and report routes tighten it locally
     // with @Throttle.
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }]),
+    AuthModule,
   ],
   controllers: [
     ProfileController,
@@ -52,6 +55,7 @@ import { AdminController, AdminGuard } from './moderation/admin.controller';
     // Order matters: throttle before token verification, so an unauthenticated
     // flood is rejected by the cheaper check.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
 })
 export class AppModule {}

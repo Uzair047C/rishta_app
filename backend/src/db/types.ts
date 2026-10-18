@@ -19,6 +19,9 @@ export interface UserRow {
   lat: number | null;
   lng: number | null;
   device_id: string | null;
+  auth_provider: string | null;
+  provider_subject: string | null;
+  email_verified: boolean;
   created_at: Date;
 }
 
