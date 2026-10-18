@@ -96,3 +96,6 @@ backend/node_modules/
 logs_problem.logs
 debug_*.py
 
+dist/
+.env
+*.log
