@@ -91,6 +91,16 @@ backend/node_modules/
 # Claude Code
 .claude/memory/
 .idea/
+# Logs
+logs_problem.logs
+debug_*.py
+# Environment
+.env
+# Node modules
+node_modules/
+# Build artifacts
+dist/
+backend/dist/
 
 # Logs
 logs_problem.logs
