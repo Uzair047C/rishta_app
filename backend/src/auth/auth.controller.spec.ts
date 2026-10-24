@@ -15,7 +15,16 @@ describe('AuthController', () => {
     email_verified: true,
     auth_provider: 'google',
     created_at: new Date(),
-  };
+    phone: null,
+    phone_verified: true,
+    gender: null,
+    dob: null,
+    location: null,
+    lat: null,
+    lng: null,
+    device_id: null,
+    provider_subject: null,
+  } as any;
 
   beforeEach(async () => {
     const mockAuthService = {

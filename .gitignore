@@ -71,7 +71,7 @@ build/
 *.dll
 *.zip
 *.log
-logs_problem.logs
+*.logs
 
 # Flutter & Dart
 .dart_tool/
@@ -88,28 +88,22 @@ backend/node_modules/
 *.env
 !*.env.example
 
-# Claude Code
-.claude/memory/
+# IDEs
+.claude/
 .idea/
-# Logs
+.antigravity/
+memory/
+
+# Logs & debug files
 logs_problem.logs
 debug_*.py
-# Environment
-.env
-# Node modules
-node_modules/
+app/log.txt
+query
+app/get-pip.py
+
 # Build artifacts
 dist/
 backend/dist/
-
-# Specific files to ignore
-app/get-pip.py
-
-# Logs
-logs_problem.logs
-debug_*.py
-
-# Build artifacts
-dist/
 .env
 *.log
+*.logs

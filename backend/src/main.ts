@@ -7,13 +7,27 @@ import { AppModule } from './app.module';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
-  // Enable CORS with allowlist from env (comma-separated origins)
-  const corsOrigins = (process.env.CORS_ORIGINS ?? '')
+  // Dev stub guard: provision() in UsersService returns first user (LIMIT 1).
+  // If that code path is ever used in production, throw.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Dev auth stub (UsersService.provision) must not be used in production');
+  }
+
+  // Auth is a dev stub (UsersService.provision returns LIMIT 1) — not for production use
+  Logger.warn('Auth is a dev stub (UsersService.provision returns LIMIT 1)', 'Bootstrap');
+
+  // Enable CORS with allowlist from env (CORS_ORIGIN, comma-separated).
+  // Default to localhost dev origins only when NODE_ENV !== 'production'.
+  const corsEnv = process.env.CORS_ORIGIN ?? process.env.CORS_ORIGINS ?? '';
+  const corsOrigins = corsEnv
     .split(',')
     .map(s => s.trim())
     .filter(Boolean);
+  const defaultOrigins = process.env.NODE_ENV !== 'production'
+    ? ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:8080', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001', 'http://127.0.0.1:8080']
+    : [];
   app.enableCors({
-    origin: corsOrigins.length > 0 ? corsOrigins : false,
+    origin: corsOrigins.length > 0 ? corsOrigins : defaultOrigins,
     credentials: true,
   });
 
