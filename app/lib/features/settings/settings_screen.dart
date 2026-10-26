@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/auth_providers.dart';
 import '../../core/models.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
@@ -15,6 +16,7 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(myProfileProvider);
+    final auth = ref.watch(authProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('You')),
@@ -52,11 +54,46 @@ class SettingsScreen extends ConsumerWidget {
                 MaterialPageRoute(builder: (_) => const NotificationPrefsScreen()),
               ),
             ),
+            const Divider(),
+            ListTile(
+              leading: Icon(Icons.logout, color: Colors.red.shade700),
+              title: Text('Sign out', style: TextStyle(color: Colors.red.shade700)),
+              onTap: auth.status == AuthStatus.authenticated || auth.status == AuthStatus.onboarding
+                  ? () => _signOut(context, ref)
+                  : null,
+            ),
             const SizedBox(height: Tokens.spaceLg),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _signOut(BuildContext context, WidgetRef ref) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Tokens.tanCard,
+        title: Text('Sign out?', style: TextStyle(color: Tokens.pinkDeep)),
+        content: Text('You will need to sign in again to access your account.', style: TextStyle(color: Tokens.pinkDeep)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade600),
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true && context.mounted) {
+      await ref.read(authProvider.notifier).signOut();
+      // Navigation handled by AuthWrapper
+    }
   }
 }
 

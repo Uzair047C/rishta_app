@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import 'package:http/http.dart' as http;
+import 'auth_storage.dart';
 
 /// Server error codes the UI branches on. Anything unrecognised becomes [unknown]
 /// so a new backend code degrades to a generic message instead of crashing.
@@ -61,27 +62,47 @@ const kReportReasons = ['Inappropriate photos', 'Harassment', 'Fake profile', 'S
 /// Generic over the decoded body: callers pass the parse function, so there is
 /// one request path for every endpoint rather than a method per route.
 class Api {
-  Api({http.Client? client, String? baseUrl})
-      : _client = client ?? http.Client(),
-        _base = baseUrl ??
-            const String.fromEnvironment('API_BASE', defaultValue: 'http://localhost:3000');
+  Api({
+    http.Client? client,
+    String? baseUrl,
+    AuthStorage? authStorage,
+  }) : _client = client ?? http.Client(),
+       _base = baseUrl ??
+           const String.fromEnvironment('API_BASE', defaultValue: 'http://localhost:3000'),
+       _authStorage = authStorage ?? AuthStorage();
 
   final http.Client _client;
   final String _base;
+  final AuthStorage _authStorage;
 
   static const _timeout = Duration(seconds: 20);
 
-  Future<T> get<T>(String path, T Function(Object? json) parse, {Map<String, Object?>? query}) =>
-      request('GET', path, parse: parse, query: query);
+  /// Current access token (cached after first read).
+  String? _cachedAccessToken;
 
-  Future<T> post<T>(String path, {Object? body, T Function(Object? json)? parse}) =>
-      request('POST', path, body: body, parse: parse ?? (json) => json as T);
+  /// Gets the access token, loading from storage if needed.
+  Future<String?> _getAccessToken() async {
+    if (_cachedAccessToken != null) return _cachedAccessToken;
+    _cachedAccessToken = await _authStorage.getAccessToken();
+    return _cachedAccessToken;
+  }
 
-  Future<T> put<T>(String path, {Object? body, T Function(Object? json)? parse}) =>
-      request('PUT', path, body: body, parse: parse ?? (json) => json as T);
+  /// Clears the cached access token (call after refresh or logout).
+  void clearCachedToken() {
+    _cachedAccessToken = null;
+  }
 
-  Future<T> delete<T>(String path, {Object? body, T Function(Object? json)? parse}) =>
-      request('DELETE', path, body: body, parse: parse ?? (json) => json as T);
+  Future<T> get<T>(String path, T Function(Object? json) parse, {Map<String, Object?>? query, bool requiresAuth = true}) =>
+      request('GET', path, parse: parse, query: query, requiresAuth: requiresAuth);
+
+  Future<T> post<T>(String path, {Object? body, T Function(Object? json)? parse, bool requiresAuth = true}) =>
+      request('POST', path, body: body, parse: parse ?? (json) => json as T, requiresAuth: requiresAuth);
+
+  Future<T> put<T>(String path, {Object? body, T Function(Object? json)? parse, bool requiresAuth = true}) =>
+      request('PUT', path, body: body, parse: parse ?? (json) => json as T, requiresAuth: requiresAuth);
+
+  Future<T> delete<T>(String path, {Object? body, T Function(Object? json)? parse, bool requiresAuth = true}) =>
+      request('DELETE', path, body: body, parse: parse ?? (json) => json as T, requiresAuth: requiresAuth);
 
   Future<T> request<T>(
     String method,
@@ -89,6 +110,7 @@ class Api {
     required T Function(Object? json) parse,
     Object? body,
     Map<String, Object?>? query,
+    bool requiresAuth = true,
   }) async {
     final uri = Uri.parse('$_base$path').replace(
       queryParameters: query?.map((k, v) => MapEntry(k, v?.toString())),
@@ -96,6 +118,14 @@ class Api {
 
     final request = http.Request(method, uri)
       ..headers['content-type'] = 'application/json';
+
+    // Add Authorization header if auth is required
+    if (requiresAuth) {
+      final accessToken = await _getAccessToken();
+      if (accessToken != null) {
+        request.headers['authorization'] = 'Bearer $accessToken';
+      }
+    }
 
     if (body != null) request.body = jsonEncode(body);
 
@@ -122,10 +152,79 @@ class Api {
       }
     }
 
+    // Handle 401: try to refresh token and retry once
+    if (response.statusCode == 401 && requiresAuth) {
+      final refreshed = await _tryRefreshToken();
+      if (refreshed) {
+        // Retry the request with new token
+        final retryRequest = http.Request(method, uri)
+          ..headers['content-type'] = 'application/json'
+          ..headers['authorization'] = 'Bearer ${_cachedAccessToken}';
+        if (body != null) retryRequest.body = jsonEncode(body);
+
+        final startTime2 = DateTime.now();
+        final retryResponse = await http.Response.fromStream(await _client.send(retryRequest)).timeout(_timeout);
+        final duration2 = DateTime.now().difference(startTime2).inMilliseconds;
+        final decoded2 = retryResponse.body.isEmpty ? null : jsonDecode(retryResponse.body);
+
+        if (kDebugMode) {
+          debugPrint('API Retry Response: $method $_base$path ${retryResponse.statusCode} (${duration2}ms)');
+        }
+
+        if (retryResponse.statusCode >= 400) {
+          throw ApiException(retryResponse.statusCode, _messageOf(decoded2), retryResponse.body);
+        }
+        return parse(decoded2);
+      }
+      // Refresh failed - clear auth state
+      await _authStorage.clear();
+      clearCachedToken();
+      throw ApiException(response.statusCode, 'not_registered', response.body);
+    }
+
     if (response.statusCode >= 400) {
       throw ApiException(response.statusCode, _messageOf(decoded), response.body);
     }
     return parse(decoded);
+  }
+
+  /// Attempt to refresh the access token using the refresh token.
+  /// Returns true if refresh succeeded.
+  Future<bool> _tryRefreshToken() async {
+    try {
+      final refreshToken = await _authStorage.getRefreshToken();
+      if (refreshToken == null) return false;
+
+      final response = await _client.post(
+        Uri.parse('$_base/auth/refresh'),
+        headers: {'content-type': 'application/json'},
+        body: jsonEncode({'refreshToken': refreshToken}),
+      ).timeout(_timeout);
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        final newAccessToken = decoded['accessToken'] as String?;
+        final newRefreshToken = decoded['refreshToken'] as String?;
+        if (newAccessToken != null && newRefreshToken != null) {
+          await _authStorage.setAccessToken(newAccessToken);
+          await _authStorage.getRefreshToken().then((old) async {
+            if (old != null) {
+              await _authStorage.setTokens(
+                accessToken: newAccessToken,
+                refreshToken: newRefreshToken,
+                userId: (await _authStorage.getUserId()) ?? '',
+              );
+            }
+          });
+          _cachedAccessToken = newAccessToken;
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      if (kDebugMode) debugPrint('Token refresh failed: $e');
+      return false;
+    }
   }
 
   /// Decodes a JSON list into models using the caller's factory.

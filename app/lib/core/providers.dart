@@ -1,14 +1,16 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api.dart';
+import 'auth_providers.dart';
 import 'models.dart';
 
 /// ------------------------------------------------------------------ api
 
-/// API provider without auth (no token needed)
-final apiProvider = Provider<Api>(
-  (ref) => Api(),
-);
+/// API provider with auth storage for token management
+final apiProvider = Provider<Api>((ref) {
+  final authStorage = ref.watch(authStorageProvider);
+  return Api(authStorage: authStorage);
+});
 
 /// --------------------------------------------------------- repositories
 

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "202873940865",
+    "project_id": "app1-81816",
+    "storage_bucket": "app1-81816.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:202873940865:android:749f2b956bfa61ed109680",
+        "android_client_info": {
+          "package_name": "com.example.rishta"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBPZDgSoORriLS7_m5l2-ZOTC4uO2_I80w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/core.dart';
+import 'features/auth/auth_wrapper.dart';
 import 'features/feed/feed_screen.dart';
 import 'features/matches/matches_screen.dart';
 import 'features/settings/settings_screen.dart';
@@ -12,6 +13,9 @@ final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.light);
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   debugPrint('Main: Starting app');
+
+  // Initialize Google Sign-In
+  await GoogleSignInService.initialize();
 
   debugPrint('Main: Running app');
   runApp(const ProviderScope(child: RishtaApp()));
@@ -33,7 +37,7 @@ class RishtaApp extends ConsumerWidget {
       builder: (context, child) {
         return child ?? const SizedBox.shrink();
       },
-      home: const HomeShell(),
+      home: const AuthWrapper(),
     );
   }
 }

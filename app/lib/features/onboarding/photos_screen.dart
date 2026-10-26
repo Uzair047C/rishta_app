@@ -12,9 +12,16 @@ import '../../core/widgets.dart';
 
 /// Photo step. Spec 1.4: minimum 3 photos required to continue.
 class PhotosScreen extends ConsumerStatefulWidget {
-  const PhotosScreen({super.key, required this.onNext});
+  const PhotosScreen({
+    super.key,
+    required this.onNext,
+    this.currentStep = 0,
+    this.totalSteps = 14,
+  });
 
   final VoidCallback onNext;
+  final int currentStep;
+  final int totalSteps;
 
   @override
   ConsumerState<PhotosScreen> createState() => _PhotosScreenState();
