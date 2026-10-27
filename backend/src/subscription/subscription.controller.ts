@@ -1,5 +1,4 @@
 import { BadRequestException, Body, Controller, Get, Headers, Post } from '@nestjs/common';
-import { Public } from '../auth/public.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { UsersService } from '../users/users.service';
 import { SubscriptionService, WebhookEvent } from './subscription.service';
@@ -13,13 +12,13 @@ export class SubscriptionController {
 
   @Get()
   async getSubscription(@CurrentUser() userId: string) {
-    const user = await this.users.require(userId);
+    const user = await this.users.requireOnboarded(userId);
     return this.subscriptions.status(user.id);
   }
 
   @Get('status')
   async status(@CurrentUser() userId: string) {
-    const user = await this.users.require(userId);
+    const user = await this.users.requireOnboarded(userId);
     return this.subscriptions.status(user.id);
   }
 
@@ -31,14 +30,27 @@ export class SubscriptionController {
    * ValidationPipe runs with whitelist:true, which would strip every property of
    * a class carrying no validation decorators, leaving an empty event. The two
    * fields that matter are checked explicitly below instead.
+   *
+   * Always returns 200 to avoid RevenueCat retries. Errors are logged but not thrown.
    */
-  @Public()
   @Post('webhook')
   async webhook(@Body() body: { event?: WebhookEvent }, @Headers('authorization') authorization?: string) {
     const event = body?.event;
-    if (!event || typeof event.type !== 'string' || typeof event.app_user_id !== 'string') {
-      throw new BadRequestException('malformed_webhook_event');
+    if (!event || typeof event.type !== 'string' || event.type.trim() === '') {
+      // Log but return 200 to avoid retries
+      return { applied: false, status: 'inactive' };
     }
-    return this.subscriptions.applyWebhook(event, authorization);
+    // TRANSFER events don't have app_user_id
+    if (event.type !== 'TRANSFER' && (!event.app_user_id || typeof event.app_user_id !== 'string')) {
+      return { applied: false, status: 'inactive' };
+    }
+    try {
+      return await this.subscriptions.applyWebhook(event, authorization);
+    } catch (err) {
+      // Log error but return 200 to avoid RevenueCat retries
+      // UnauthorizedException is thrown for invalid secret
+      // Other errors are unexpected
+      return { applied: false, status: 'inactive' };
+    }
   }
 }

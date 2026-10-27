@@ -4,6 +4,9 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { Reflector } from '@nestjs/core';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import { Db } from '../db/db';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -13,7 +16,9 @@ describe('AuthController', () => {
     id: 'test-user-id',
     email: 'test@example.com',
     email_verified: true,
-    auth_provider: 'google',
+    auth_provider: 'firebase',
+    firebase_uid: 'firebase-uid-123',
+    status: 'active',
     created_at: new Date(),
     phone: null,
     phone_verified: true,
@@ -24,11 +29,12 @@ describe('AuthController', () => {
     lng: null,
     device_id: null,
     provider_subject: null,
+    is_admin: false,
   } as any;
 
   beforeEach(async () => {
     const mockAuthService = {
-      googleLogin: jest.fn(),
+      firebaseLogin: jest.fn(),
       refreshAccessToken: jest.fn(),
       logout: jest.fn(),
       validateUser: jest.fn(),
@@ -38,12 +44,18 @@ describe('AuthController', () => {
     const mockReflector = {
       getAllAndOverride: jest.fn(),
     };
+    const mockJwtService = { verify: jest.fn() };
+    const mockConfigService = { get: jest.fn().mockReturnValue('test-secret') };
+    const mockDb = { oneOrNone: jest.fn().mockResolvedValue({ id: 'test-user-id', status: 'active', is_admin: false }) };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
       providers: [
         { provide: AuthService, useValue: mockAuthService },
         { provide: Reflector, useValue: mockReflector },
+        { provide: JwtService, useValue: mockJwtService },
+        { provide: ConfigService, useValue: mockConfigService },
+        { provide: Db, useValue: mockDb },
         JwtAuthGuard,
       ],
     }).compile();
@@ -56,26 +68,26 @@ describe('AuthController', () => {
     jest.clearAllMocks();
   });
 
-  describe('googleLogin', () => {
-    it('should return tokens and user on valid Google ID token', async () => {
+  describe('firebaseLogin', () => {
+    it('should return tokens and user on valid Firebase ID token', async () => {
       const expected = {
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
         user: mockUser,
         profileComplete: false,
       };
-      authService.googleLogin.mockResolvedValue(expected);
+      authService.firebaseLogin.mockResolvedValue(expected);
 
-      const result = await controller.googleLogin({ idToken: 'valid-google-id-token' });
+      const result = await controller.firebaseLogin({ idToken: 'valid-firebase-id-token' });
 
       expect(result).toEqual(expected);
-      expect(authService.googleLogin).toHaveBeenCalledWith('valid-google-id-token');
+      expect(authService.firebaseLogin).toHaveBeenCalledWith('valid-firebase-id-token');
     });
 
     it('should propagate UnauthorizedException from service', async () => {
-      authService.googleLogin.mockRejectedValue(new UnauthorizedException('Invalid Google ID token'));
+      authService.firebaseLogin.mockRejectedValue(new UnauthorizedException('Invalid Firebase ID token'));
 
-      await expect(controller.googleLogin({ idToken: 'invalid-token' })).rejects.toThrow(UnauthorizedException);
+      await expect(controller.firebaseLogin({ idToken: 'invalid-token' })).rejects.toThrow(UnauthorizedException);
     });
   });
 
@@ -128,6 +140,8 @@ describe('AuthController', () => {
         email: mockUser.email,
         emailVerified: mockUser.email_verified,
         authProvider: mockUser.auth_provider,
+        firebaseUid: mockUser.firebase_uid,
+        status: mockUser.status,
         createdAt: mockUser.created_at,
       });
     });

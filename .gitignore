@@ -89,17 +89,17 @@ backend/node_modules/
 !*.env.example
 
 # IDEs
-.claude/
 .idea/
 .antigravity/
-memory/
+.vscode/
 
 # Logs & debug files
 logs_problem.logs
 debug_*.py
 app/log.txt
-query
 app/get-pip.py
+query
+MEMORY_UPDATE.md
 
 # Build artifacts
 dist/
@@ -107,3 +107,7 @@ backend/dist/
 .env
 *.log
 *.logs
+
+# OS files
+.DS_Store
+Thumbs.db

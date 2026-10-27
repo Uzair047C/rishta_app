@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post } from '@nestjs/common';
 import {
   IsArray,
   IsBoolean,
@@ -8,7 +8,6 @@ import {
   IsNumber,
   IsOptional,
   IsString,
-  IsUrl,
   Max,
   MaxLength,
   Min,
@@ -16,10 +15,10 @@ import {
 } from 'class-validator';
 import { Public } from '../auth/public.decorator';
 import { UsersService } from '../users/users.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { ProfileInput, ProfileService } from './profile.service';
 import { Gender, MaritalStatus, ReligiousPracticeLevel, Sect } from '../db/types';
+import { PhotosService } from '../photos/photos.service';
 
 const GENDERS: Gender[] = ['male', 'female', 'other'];
 const MARITAL: MaritalStatus[] = ['never_married', 'divorced', 'separated', 'annulled', 'widowed', 'married'];
@@ -57,12 +56,12 @@ class ProfileDto implements ProfileInput {
 }
 
 class PhotoDto {
-  @IsUrl({ require_tld: false }) url!: string;
+  @IsString() @MaxLength(512) objectPath!: string; // e.g., "photos/user-uuid/photo1.jpg"
   @IsOptional() @IsBoolean() makePrimary?: boolean;
 }
 
 class SetPhotosDto {
-  @IsArray() @IsUrl({ require_tld: false }, { each: true }) urls!: string[];
+  @IsArray() @IsString({ each: true }) @MaxLength(512, { each: true }) objectPaths!: string[];
 }
 
 @Controller('profile')
@@ -70,6 +69,7 @@ export class ProfileController {
   constructor(
     private readonly profiles: ProfileService,
     private readonly users: UsersService,
+    private readonly photos: PhotosService,
   ) {}
 
   /** Closed tag set — what makes interest-overlap ranking computable. */
@@ -122,27 +122,23 @@ export class ProfileController {
   }
 
   @Get()
-  @UseGuards(JwtAuthGuard)
   async me(@CurrentUser() userId: string) {
     return this.profiles.me(userId);
   }
 
   @Post()
-  @UseGuards(JwtAuthGuard)
   async save(@CurrentUser() userId: string, @Body() dto: ProfileDto) {
     return this.profiles.upsert(userId, dto);
   }
 
   @Post('photo')
-  @UseGuards(JwtAuthGuard)
   async addPhoto(@CurrentUser() userId: string, @Body() dto: PhotoDto) {
-    return this.profiles.addPhoto(userId, dto.url, dto.makePrimary);
+    return this.photos.addPhoto({ userId, objectPath: dto.objectPath, makePrimary: dto.makePrimary });
   }
 
   @Post('photos')
-  @UseGuards(JwtAuthGuard)
   async setPhotos(@CurrentUser() userId: string, @Body() dto: SetPhotosDto) {
-    return this.profiles.setPhotos(userId, dto.urls);
+    return this.photos.setPhotos(userId, dto.objectPaths);
   }
 }
 

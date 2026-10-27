@@ -7,6 +7,25 @@ import { ConfigService } from '@nestjs/config';
 import { Db } from '../db/db';
 import { UserRow } from '../db/types';
 
+// Mock firebase-admin modules
+jest.mock('firebase-admin/app', () => ({
+  initializeApp: jest.fn(),
+  getApps: jest.fn(() => []),
+  cert: jest.fn(),
+  App: jest.fn(),
+}));
+
+jest.mock('firebase-admin/auth', () => ({
+  getAuth: jest.fn(() => ({
+    verifyIdToken: jest.fn().mockResolvedValue({
+      uid: 'firebase-uid-123',
+      email: 'test@example.com',
+      email_verified: true,
+      name: 'Test User',
+    }),
+  })),
+}));
+
 describe('AuthService', () => {
   let service: AuthService;
   let usersService: jest.Mocked<UsersService>;
@@ -25,15 +44,18 @@ describe('AuthService', () => {
     lat: null,
     lng: null,
     device_id: null,
-    auth_provider: 'google',
-    provider_subject: 'google-sub-123',
+    auth_provider: 'firebase',
+    provider_subject: 'firebase-uid-123',
     email_verified: true,
+    firebase_uid: 'firebase-uid-123',
+    status: 'active',
+    is_admin: false,
     created_at: new Date(),
   };
 
   beforeEach(async () => {
     const mockUsersService = {
-      findOrCreateByGoogleId: jest.fn(),
+      findOrCreateByFirebaseUid: jest.fn(),
       requireOnboarded: jest.fn(),
       findOne: jest.fn(),
     };
@@ -47,7 +69,9 @@ describe('AuthService', () => {
       get: jest.fn((key: string) => {
         const values: Record<string, unknown> = {
           JWT_SECRET: 'test-secret',
-          GOOGLE_CLIENT_IDS: ['web-client-id', 'android-client-id', 'ios-client-id'],
+          FIREBASE_PROJECT_ID: 'test-project',
+          FIREBASE_CLIENT_EMAIL: 'firebase-adminsdk@test-project.iam.gserviceaccount.com',
+          FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nTEST\n-----END PRIVATE KEY-----\n',
           STREAM_API_KEY: 'stream-key',
           STREAM_API_SECRET: 'stream-secret',
         };
@@ -85,55 +109,53 @@ describe('AuthService', () => {
     jest.clearAllMocks();
   });
 
-  describe('validateGoogleIdToken', () => {
-    it('should throw UnauthorizedException for invalid token', async () => {
-      // We can't easily mock the OAuth2Client, so this test verifies the method exists
-      // Full integration test would require mocking google-auth-library
-      expect(service.validateGoogleIdToken).toBeDefined();
+  describe('validateFirebaseIdToken', () => {
+    it('should be defined', () => {
+      expect(service.validateFirebaseIdToken).toBeDefined();
     });
   });
 
-  describe('googleLogin', () => {
+  describe('firebaseLogin', () => {
     it('should return accessToken, refreshToken, user, and profileComplete for new user', async () => {
-      usersService.findOrCreateByGoogleId.mockResolvedValue(mockUser);
+      usersService.findOrCreateByFirebaseUid.mockResolvedValue(mockUser);
       usersService.requireOnboarded.mockRejectedValue(new Error('profile_incomplete'));
       jwtService.sign.mockReturnValue('access-token');
       db.query.mockResolvedValue({ rows: [], rowCount: 1 });
 
-      const result = await service.googleLogin('valid-id-token');
+      const result = await service.firebaseLogin('valid-id-token');
 
       expect(result).toHaveProperty('accessToken');
       expect(result).toHaveProperty('refreshToken');
       expect(result).toHaveProperty('user');
       expect(result).toHaveProperty('profileComplete');
       expect(result.profileComplete).toBe(false);
-      expect(usersService.findOrCreateByGoogleId).toHaveBeenCalled();
+      expect(usersService.findOrCreateByFirebaseUid).toHaveBeenCalled();
     });
 
     it('should return profileComplete: true when user has completed onboarding', async () => {
-      usersService.findOrCreateByGoogleId.mockResolvedValue(mockUser);
+      usersService.findOrCreateByFirebaseUid.mockResolvedValue(mockUser);
       usersService.requireOnboarded.mockResolvedValue(mockUser);
       jwtService.sign.mockReturnValue('access-token');
       db.query.mockResolvedValue({ rows: [], rowCount: 1 });
 
-      const result = await service.googleLogin('valid-id-token');
+      const result = await service.firebaseLogin('valid-id-token');
 
       expect(result.profileComplete).toBe(true);
     });
 
     it('should not create duplicate user on repeat login', async () => {
-      usersService.findOrCreateByGoogleId.mockResolvedValue(mockUser);
+      usersService.findOrCreateByFirebaseUid.mockResolvedValue(mockUser);
       usersService.requireOnboarded.mockResolvedValue(mockUser);
       jwtService.sign.mockReturnValue('access-token');
       db.query.mockResolvedValue({ rows: [], rowCount: 1 });
 
       // First login
-      await service.googleLogin('valid-id-token');
+      await service.firebaseLogin('valid-id-token');
       // Second login (repeat)
-      await service.googleLogin('valid-id-token');
+      await service.firebaseLogin('valid-id-token');
 
-      // findOrCreateByGoogleId should be called twice but return same user
-      expect(usersService.findOrCreateByGoogleId).toHaveBeenCalledTimes(2);
+      // findOrCreateByFirebaseUid should be called twice but return same user
+      expect(usersService.findOrCreateByFirebaseUid).toHaveBeenCalledTimes(2);
     });
   });
 

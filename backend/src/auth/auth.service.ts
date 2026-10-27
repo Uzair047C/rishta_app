@@ -4,76 +4,72 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Db } from '../db/db';
 import { UserRow } from '../db/types';
-import { OAuth2Client } from 'google-auth-library';
 import * as bcrypt from 'bcrypt';
+import { getAuth } from 'firebase-admin/auth';
+import { initializeApp, cert, getApps, App } from 'firebase-admin/app';
 
 @Injectable()
 export class AuthService {
+  private readonly firebaseApp: App;
+
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly db: Db,
-  ) {}
+  ) {
+    // Initialize Firebase Admin SDK
+    this.firebaseApp = this.initializeFirebase();
+  }
+
+  private initializeFirebase(): App {
+    if (getApps().length > 0) {
+      return getApps()[0];
+    }
+
+    const projectId = this.configService.get<string>('FIREBASE_PROJECT_ID');
+    const clientEmail = this.configService.get<string>('FIREBASE_CLIENT_EMAIL');
+    const privateKey = this.configService.get<string>('FIREBASE_PRIVATE_KEY')?.replace(/\\n/g, '\n');
+
+    if (!projectId || !clientEmail || !privateKey) {
+      throw new Error('Firebase Admin credentials not configured (FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY)');
+    }
+
+    return initializeApp({
+      credential: cert({ projectId, clientEmail, privateKey }),
+    });
+  }
 
   // Refresh token settings
   private readonly REFRESH_TOKEN_TTL_DAYS = 30;
   private readonly ACCESS_TOKEN_TTL_MINUTES = 15;
 
-  async validateGoogleIdToken(idToken: string): Promise<{ email: string; googleId: string; emailVerified: boolean; name?: { givenName?: string; familyName?: string } }> {
+  async validateFirebaseIdToken(idToken: string): Promise<{ firebaseUid: string; email: string; emailVerified: boolean; name?: string }> {
     try {
-      const client = new OAuth2Client();
-      const audience = this.configService.get<string[]>('GOOGLE_CLIENT_IDS') ?? [];
-      const ticket = await client.verifyIdToken({
-        idToken,
-        audience: audience.filter(Boolean),
-      });
-      const payload = ticket.getPayload();
-
-      if (!payload) {
-        throw new UnauthorizedException('Invalid ID token');
-      }
-
-      // Check issuer
-      const allowedIssuers = ['accounts.google.com', 'https://accounts.google.com'];
-      if (!allowedIssuers.includes(payload.iss)) {
-        throw new UnauthorizedException('Invalid token issuer');
-      }
-
-      // Check email verified
-      if (!payload.email_verified) {
-        throw new UnauthorizedException('Email not verified with Google');
-      }
+      const decodedToken = await getAuth(this.firebaseApp).verifyIdToken(idToken, true);
 
       return {
-        email: payload.email ?? '',
-        googleId: payload.sub ?? '',
-        emailVerified: payload.email_verified ?? false,
-        name: {
-          givenName: payload.given_name ?? undefined,
-          familyName: payload.family_name ?? undefined,
-        }
+        firebaseUid: decodedToken.uid,
+        email: decodedToken.email ?? '',
+        emailVerified: decodedToken.email_verified ?? false,
+        name: decodedToken.name ?? undefined,
       };
     } catch (error) {
-      if (error instanceof UnauthorizedException) {
-        throw error;
-      }
-      throw new UnauthorizedException('Invalid Google ID token');
+      throw new UnauthorizedException('Invalid Firebase ID token');
     }
   }
 
-  async googleLogin(idToken: string): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
-    const googlePayload = await this.validateGoogleIdToken(idToken);
+  async firebaseLogin(idToken: string): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
+    const firebasePayload = await this.validateFirebaseIdToken(idToken);
 
-    // Find or create user by Google ID
-    const user = await this.usersService.findOrCreateByGoogleId(
-      googlePayload.googleId,
-      googlePayload.email,
-      googlePayload.name?.givenName,
-      googlePayload.name?.familyName
+    // Find or create user by Firebase UID
+    const user = await this.usersService.findOrCreateByFirebaseUid(
+      firebasePayload.firebaseUid,
+      firebasePayload.email,
+      firebasePayload.name
     );
 
-    // Check if user has completed onboarding (has a profile)
+    // Check if user has completed onboarding
     let profileComplete = false;
     try {
       await this.usersService.requireOnboarded(user.id);
@@ -119,7 +115,7 @@ export class AuthService {
     // Revoke the old token (rotating refresh token)
     await this.db.query(
       'UPDATE refresh_tokens SET revoked_at = now(), replaced_by = $1 WHERE id = $2',
-      [matchedToken.id, matchedToken.id] // We'll set replaced_by after creating new one
+      [matchedToken.id, matchedToken.id]
     );
 
     // Issue new token pair
@@ -195,7 +191,6 @@ export class AuthService {
     }
 
     // Create a server-side Stream token for the user
-    // Using the Stream Chat server-to-server auth pattern
     const { StreamChat } = await import('stream-chat');
     const serverClient = StreamChat.getInstance(streamApiKey, streamApiSecret);
     const token = serverClient.createToken(userId);

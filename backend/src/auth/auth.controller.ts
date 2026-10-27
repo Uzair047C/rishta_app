@@ -10,10 +10,10 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @Post('google')
+  @Post('firebase')
   @Public()
-  async googleLogin(@Body() { idToken }: { idToken: string }) {
-    return this.authService.googleLogin(idToken);
+  async firebaseLogin(@Body() { idToken }: { idToken: string }) {
+    return this.authService.firebaseLogin(idToken);
   }
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
@@ -40,6 +40,8 @@ export class AuthController {
       email: user.email,
       emailVerified: user.email_verified,
       authProvider: user.auth_provider,
+      firebaseUid: user.firebase_uid,
+      status: user.status,
       createdAt: user.created_at,
     };
   }

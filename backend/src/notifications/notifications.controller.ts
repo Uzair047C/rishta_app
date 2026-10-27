@@ -1,6 +1,5 @@
 import { Body, Controller, Delete, Get, Post, Put } from '@nestjs/common';
 import { IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
-import { Public } from '../auth/public.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { UsersService } from '../users/users.service';
 import { Db } from '../db/db';
@@ -35,7 +34,7 @@ export class NotificationsController {
   /** Spec 1.2 — per-category toggles are expected by both app stores. */
   @Get('preferences')
   async get(@CurrentUser() userId: string) {
-    const user = await this.users.require(userId);
+    const user = await this.users.requireOnboarded(userId);
     // Defaults live in the schema; a missing row means "never configured".
     const row = await this.db.one<Record<string, boolean>>(
       `INSERT INTO notification_preferences (user_id) VALUES ($1)
@@ -53,7 +52,7 @@ export class NotificationsController {
 
   @Put('preferences')
   async update(@CurrentUser() userId: string, @Body() dto: PreferencesDto) {
-    const user = await this.users.require(userId);
+    const user = await this.users.requireOnboarded(userId);
     const entries = Object.entries(dto).filter(([, v]) => v !== undefined);
     if (!entries.length) return this.get(userId);
 
@@ -75,7 +74,7 @@ export class NotificationsController {
   /** Client calls this after FCM hands it a token. */
   @Post('device')
   async registerDevice(@CurrentUser() userId: string, @Body() dto: DeviceDto) {
-    const user = await this.users.require(userId);
+    const user = await this.users.requireOnboarded(userId);
     // Token is the PK: a device that changes hands must move to the new owner.
     await this.db.query(
       `INSERT INTO device_tokens (token, user_id, platform) VALUES ($1, $2, $3)
@@ -87,7 +86,7 @@ export class NotificationsController {
 
   @Delete('device')
   async unregisterDevice(@CurrentUser() userId: string, @Body() dto: DeviceDto) {
-    const user = await this.users.require(userId);
+    const user = await this.users.requireOnboarded(userId);
     await this.db.query('DELETE FROM device_tokens WHERE token = $1 AND user_id = $2', [
       dto.token,
       user.id,

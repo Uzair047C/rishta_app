@@ -19,54 +19,46 @@ export class UsersService {
   async requireOnboarded(userId: string): Promise<UserRow> {
     const user = await this.require(userId);
 
-    const profile = await this.db.oneOrNone('SELECT 1 FROM profiles WHERE user_id = $1', [user.id]);
+    const profile = await this.db.oneOrNone(
+      `SELECT 1 FROM profiles
+       WHERE user_id = $1
+       AND name IS NOT NULL
+       AND photos IS NOT NULL
+       AND array_length(photos, 1) > 0`,
+      [user.id]
+    );
     if (!profile) {
+      throw new ForbiddenException('profile_incomplete');
+    }
+    if (!user.gender || !user.dob) {
       throw new ForbiddenException('profile_incomplete');
     }
     return user;
   }
 
   /**
-   * Idempotent provision. Safe to call on every app launch: returns the user if exists or creates one.
-   * @deprecated Use require() with authenticated user ID instead
+   * Find or create a user by Firebase UID.
+   * Primary identifier is firebase_uid.
+   * If no match but a user with the same verified email exists and has no firebase_uid, link it.
+   * If that email is already linked to a different firebase_uid, return conflict.
    */
-  async provision(deviceId?: string): Promise<UserRow> {
-    // This method is kept for backward compatibility but should not be used in new code
-    // It returns the first user or creates one if none exist
-    let user = await this.db.oneOrNone<UserRow>('SELECT * FROM users LIMIT 1');
-    if (!user) {
-      user = await this.db.one<UserRow>(
-        'INSERT INTO users (email, phone, phone_verified, gender, dob, location, lat, lng, device_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
-        [null, null, false, null, null, null, null, null, deviceId ?? null]
-      );
-    }
-    return user!;
-  }
-
-  /**
-   * Find or create a user by Google ID.
-   * Primary identifier is (auth_provider='google', provider_subject=googleId).
-   * If no match but a user with the same verified email exists and has no provider identity, link it.
-   * If that email is already linked to a different provider subject, return conflict.
-   */
-  async findOrCreateByGoogleId(
-    googleId: string,
+  async findOrCreateByFirebaseUid(
+    firebaseUid: string,
     email: string,
-    firstName?: string,
-    lastName?: string
+    displayName?: string
   ): Promise<UserRow> {
     if (!email) {
-      throw new Error('Email not provided from Google');
+      throw new Error('Email not provided from Firebase');
     }
 
-    // First try to find by Google ID
+    // First try to find by Firebase UID
     let user = await this.db.oneOrNone<UserRow>(
-      'SELECT * FROM users WHERE auth_provider = $1 AND provider_subject = $2',
-      ['google', googleId]
+      'SELECT * FROM users WHERE firebase_uid = $1',
+      [firebaseUid]
     );
 
     if (user) {
-      // Update email_verified if Google says it's verified
+      // Update email_verified if Firebase says it's verified
       await this.db.query(
         'UPDATE users SET email_verified = true WHERE id = $1',
         [user.id]
@@ -74,63 +66,61 @@ export class UsersService {
       return user;
     }
 
-    // If no Google ID match, look for user with this email
+    // If no Firebase UID match, look for user with this email (lowercase for case-insensitive)
+    const lowerEmail = email.toLowerCase();
     user = await this.db.oneOrNone<UserRow>(
-      'SELECT * FROM users WHERE email = $1 AND email_verified = true',
-      [email]
+      'SELECT * FROM users WHERE lower(email) = $1 AND email_verified = true',
+      [lowerEmail]
     );
 
     if (user) {
-      // Check if this user already has a provider identity
-      const existingProvider = await this.db.oneOrNone<{ auth_provider: string | null; provider_subject: string | null }>(
-        'SELECT auth_provider, provider_subject FROM users WHERE id = $1 AND auth_provider IS NOT NULL',
-        [user.id]
-      );
-
-      if (existingProvider && existingProvider.auth_provider) {
-        // User already has a different provider identity - conflict
-        if (existingProvider.auth_provider !== 'google' || existingProvider.provider_subject !== googleId) {
-          throw new Error('Account already exists with different provider');
-        }
-        // Same provider, just update if needed
-        await this.db.query(
-          'UPDATE users SET email_verified = true WHERE id = $1',
-          [user.id]
-        );
-        return user;
+      // Check if this user already has a firebase_uid
+      if (user.firebase_uid && user.firebase_uid !== firebaseUid) {
+        throw new Error('Account already exists with different Firebase UID');
       }
-
-      // No existing provider, link this Google account to the user
+      // Link this Firebase account to the user
       await this.db.query(
         `UPDATE users SET
-         auth_provider = $2,
-         provider_subject = $3,
-         email_verified = true
-         WHERE id = $1`,
-        [user.id, 'google', googleId]
+           firebase_uid = $2,
+           email_verified = true
+           WHERE id = $1`,
+        [user.id, firebaseUid]
       );
       return user;
     }
 
     // No existing user found, create new one
     user = await this.db.one<UserRow>(
-      'INSERT INTO users (email, phone, phone_verified, gender, dob, location, lat, lng, device_id, auth_provider, provider_subject, email_verified) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *',
+      `INSERT INTO users (email, phone, phone_verified, gender, dob, location, lat, lng, device_id, firebase_uid, email_verified)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
       [
         email,
         null,
-        true, // phone_verified - assume true for Google users
-        null, // gender
-        null, // dob
-        null, // location
-        null, // lat
-        null, // lng
-        null, // device_id
-        'google',
-        googleId,
-        true  // email_verified
+        false,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        firebaseUid,
+        true,
       ]
     );
     return user!;
+  }
+
+  /**
+   * @deprecated Use findOrCreateByFirebaseUid instead. Kept for backward compatibility.
+   */
+  async findOrCreateByGoogleId(
+    googleId: string,
+    email: string,
+    firstName?: string,
+    lastName?: string
+  ): Promise<UserRow> {
+    // Delegate to firebase method since Firebase UID is now the primary identifier
+    return this.findOrCreateByFirebaseUid(googleId, email, `${firstName ?? ''} ${lastName ?? ''}`.trim() || undefined);
   }
 
   /** Find a user by ID. Returns null if not found. */

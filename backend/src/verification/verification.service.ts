@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Inject } from '@nestjs/common';
 import { Db } from '../db/db';
 import { ProfileRow, UserRow, VerificationEventRow, VerificationStatus } from '../db/types';
+import { FaceVerificationProvider, VerificationResult, FACE_VERIFICATION_PROVIDER } from './face-verification.provider';
 
 export interface VerificationStatusView {
   status: VerificationStatus;
@@ -12,38 +13,39 @@ export interface VerificationStatusView {
 export class VerificationService {
   private readonly log = new Logger(VerificationService.name);
 
-  constructor(private readonly db: Db) {}
+  constructor(
+    private readonly db: Db,
+    @Inject(FACE_VERIFICATION_PROVIDER) private readonly provider: FaceVerificationProvider,
+  ) {}
 
-  /**
-   * Creates a mock liveness session for development.
-   * In production with Firebase/AWS removed, we simulate successful verification.
-   */
-  async createLivenessSession(): Promise<{ sessionId: string | null; devBypass: boolean }> {
-    // Return a mock session ID - in real implementation this would come from AWS
-    return { sessionId: `mock-session-${Date.now()}`, devBypass: true };
-  }
-
+  
   /**
    * Spec 1.2/2.3 — submits a live selfie for verification.
-   * With Firebase/AWS removed, we simulate successful verification for development.
-   * In a real implementation without Firebase, you'd integrate with another provider
-   * or implement local verification logic.
+   * Uses the configured FaceVerificationProvider (AWS Rekognition or none).
+   * With no provider configured, fails closed and queues for human review.
+   * Never auto-approves — all verifications require admin review.
    */
   async submit(user: UserRow, livenessSessionId?: string, selfieUrl?: string): Promise<VerificationStatusView> {
     const profile = await this.db.one<ProfileRow>('SELECT * FROM profiles WHERE user_id = $1', [user.id]);
     const primaryPhoto = profile?.photos?.[0];
     if (!primaryPhoto) throw new BadRequestException('no_primary_photo');
 
-    // Simulate successful verification for development
-    // In production without Firebase/AWS, you would implement actual verification logic here
-    this.log.debug('Verification service: Simulating successful verification (Firebase/AWS removed)');
+    // Verify using the configured provider
+    const result = await this.provider.verify(primaryPhoto, selfieUrl ?? '');
+
+    // Always set to pending — admin must explicitly approve/reject
+    const status: VerificationStatus = 'pending';
+    const reason = result.verified
+      ? `provider_verified: match=${result.matchScore}, liveness=${result.livenessScore}`
+      : result.reason ?? 'provider_failed';
+
     return this.record(
       user.id,
-      selfieUrl ?? `mock-selfie://${Date.now()}`,
-      95, // mock match score
-      90, // mock liveness score
-      'verified',
-      null,
+      selfieUrl ?? `selfie://${livenessSessionId ?? Date.now()}`,
+      result.matchScore,
+      result.livenessScore,
+      status,
+      reason,
     );
   }
 
@@ -68,6 +70,46 @@ export class VerificationService {
     };
   }
 
+  /** Admin: approve a pending verification. */
+  async approve(userId: string, reviewedBy: string): Promise<VerificationStatusView> {
+    const latest = await this.db.one<VerificationEventRow>(
+      'SELECT * FROM verification_events WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [userId],
+    );
+    if (!latest || latest.result !== 'pending') {
+      throw new BadRequestException('no_pending_verification');
+    }
+
+    return this.record(
+      userId,
+      latest.selfie_url,
+      latest.match_score,
+      latest.liveness_score,
+      'verified',
+      `approved_by_${reviewedBy}`,
+    );
+  }
+
+  /** Admin: reject a pending verification. */
+  async reject(userId: string, reviewedBy: string, reason: string): Promise<VerificationStatusView> {
+    const latest = await this.db.one<VerificationEventRow>(
+      'SELECT * FROM verification_events WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [userId],
+    );
+    if (!latest || latest.result !== 'pending') {
+      throw new BadRequestException('no_pending_verification');
+    }
+
+    return this.record(
+      userId,
+      latest.selfie_url,
+      latest.match_score,
+      latest.liveness_score,
+      'failed',
+      `rejected_by_${reviewedBy}: ${reason}`,
+    );
+  }
+
   /** Records the attempt and moves profiles.verification_status to match. */
   private async record(
     userId: string,
@@ -79,9 +121,9 @@ export class VerificationService {
   ): Promise<VerificationStatusView> {
     await this.db.tx(async (conn) => {
       await conn.query(
-        `INSERT INTO verification_events (user_id, selfie_url, match_score, liveness_score, result, reason)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [userId, selfieUrl, matchScore, livenessScore, result, reason],
+        `INSERT INTO verification_events (user_id, selfie_url, match_score, liveness_score, result, reason, reviewed_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [userId, selfieUrl, matchScore, livenessScore, result, reason, result === 'verified' || result === 'failed' ? null : null],
       );
       // Direct write, not via Repo: the trigger on profiles only reacts to photo
       // changes, so a plain status update here passes through untouched.

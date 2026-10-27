@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_FILTER } from '@nestjs/core';
 
 import { Db } from './db/db';
 import { UsersService } from './users/users.service';
@@ -22,6 +22,10 @@ import { ModerationService } from './moderation/moderation.service';
 import { AdminController, AdminGuard } from './moderation/admin.controller';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { PostgresExceptionFilter } from './common/postgres-exception.filter';
+import { throttlerKeyGenerator } from './auth/throttler-options';
+import { PhotosModule } from './photos/photos.module';
+import { PgBossModule } from './pg-boss/pg-boss.module';
 
 @Module({
   imports: [
@@ -29,8 +33,16 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
     ScheduleModule.forRoot(),
     // Spec 2.1 — global baseline; auth, like and report routes tighten it locally
     // with @Throttle.
-    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }]),
+    ThrottlerModule.forRoot({
+      throttlers: [
+        { name: 'default', ttl: 60_000, limit: 100 },
+      ],
+      // Key by user ID when authenticated, otherwise by IP
+      getTracker: throttlerKeyGenerator,
+    }),
     AuthModule,
+    PgBossModule,
+    PhotosModule,
   ],
   controllers: [
     ProfileController,
@@ -56,6 +68,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
     // flood is rejected by the cheaper check.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_FILTER, useClass: PostgresExceptionFilter },
   ],
 })
 export class AppModule {}

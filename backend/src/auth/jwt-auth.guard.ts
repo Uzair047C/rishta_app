@@ -3,6 +3,8 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import { Db } from '../db/db';
+import { UserRow } from '../db/types';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -10,9 +12,10 @@ export class JwtAuthGuard implements CanActivate {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly reflector: Reflector,
+    private readonly db: Db,
   ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     // Check if route is marked as @Public()
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
@@ -37,10 +40,24 @@ export class JwtAuthGuard implements CanActivate {
         throw new Error('JWT_SECRET is not configured');
       }
       const payload = this.jwtService.verify(token, { secret: jwtSecret });
-      // Attach user to request
-      request.user = payload;
+
+      // Fetch full user from database and attach to request
+      const user = await this.db.oneOrNone<UserRow>('SELECT * FROM users WHERE id = $1', [payload.userId]);
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+
+      // Check if user is active (not suspended/banned)
+      if (user.status && user.status !== 'active') {
+        throw new UnauthorizedException('Account suspended');
+      }
+
+      request.user = user;
       return true;
     } catch (error) {
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
       throw new UnauthorizedException('Invalid or expired token');
     }
   }

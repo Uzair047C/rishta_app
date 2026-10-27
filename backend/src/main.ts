@@ -16,13 +16,22 @@ async function bootstrap(): Promise<void> {
   // Auth is a dev stub (UsersService.provision returns LIMIT 1) — not for production use
   Logger.warn('Auth is a dev stub (UsersService.provision returns LIMIT 1)', 'Bootstrap');
 
-  // Enable CORS with allowlist from env (CORS_ORIGIN, comma-separated).
-  // Default to localhost dev origins only when NODE_ENV !== 'production'.
-  const corsEnv = process.env.CORS_ORIGIN ?? process.env.CORS_ORIGINS ?? '';
+  // Trust proxy for correct IP addresses behind reverse proxy (nginx, cloudflare, etc.)
+  // Enable via TRUST_PROXY=true in production
+  if (process.env.TRUST_PROXY === 'true') {
+    app.getHttpAdapter().getInstance().set('trust proxy', true);
+  }
+
+  // Enable CORS with explicit allowlist from env (CORS_ORIGINS, comma-separated).
+  // No default allowlist in production - must be configured explicitly.
+  const corsEnv = process.env.CORS_ORIGINS ?? '';
   const corsOrigins = corsEnv
     .split(',')
     .map(s => s.trim())
     .filter(Boolean);
+  if (corsOrigins.length === 0 && process.env.NODE_ENV === 'production') {
+    throw new Error('CORS_ORIGINS must be set in production');
+  }
   const defaultOrigins = process.env.NODE_ENV !== 'production'
     ? ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:8080', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001', 'http://127.0.0.1:8080']
     : [];

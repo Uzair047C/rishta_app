@@ -2,6 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UnauthorizedException } from '@nestjs/common';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { Reflector } from '@nestjs/core';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import { Db } from '../db/db';
 import { IS_PUBLIC_KEY } from './public.decorator';
 
 describe('JwtAuthGuard', () => {
@@ -9,6 +12,7 @@ describe('JwtAuthGuard', () => {
   let reflector: jest.Mocked<Reflector>;
   let jwtService: { verify: jest.Mock };
   let configService: { get: jest.Mock };
+  let db: { oneOrNone: jest.Mock };
 
   const mockRequest = (headers: Record<string, string>) => ({
     headers,
@@ -27,13 +31,15 @@ describe('JwtAuthGuard', () => {
     jwtService = { verify: jest.fn() };
     configService = { get: jest.fn().mockReturnValue('test-secret') };
     reflector = { getAllAndOverride: jest.fn() } as unknown as jest.Mocked<Reflector>;
+    db = { oneOrNone: jest.fn().mockResolvedValue({ id: 'test-user-id', status: 'active' }) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         JwtAuthGuard,
         { provide: Reflector, useValue: reflector },
-        { provide: 'JwtService', useValue: jwtService },
-        { provide: 'ConfigService', useValue: configService },
+        { provide: JwtService, useValue: jwtService },
+        { provide: ConfigService, useValue: configService },
+        { provide: Db, useValue: db },
       ],
     }).compile();
 
@@ -79,14 +85,16 @@ describe('JwtAuthGuard', () => {
   it('should attach user to request and return true for valid token', async () => {
     reflector.getAllAndOverride.mockReturnValue(false);
     jwtService.verify.mockReturnValue({ userId: 'test-user-id' });
+    db.oneOrNone.mockResolvedValue({ id: 'test-user-id', status: 'active', is_admin: false });
     const request = mockRequest({ authorization: 'Bearer valid-token' });
     const ctx = mockContext(request);
 
     const result = await guard.canActivate(ctx as any);
 
     expect(result).toBe(true);
-    expect(request.user).toEqual({ userId: 'test-user-id' });
+    expect(request.user).toEqual({ id: 'test-user-id', status: 'active', is_admin: false });
     expect(jwtService.verify).toHaveBeenCalledWith('valid-token', { secret: 'test-secret' });
+    expect(db.oneOrNone).toHaveBeenCalledWith('SELECT * FROM users WHERE id = $1', ['test-user-id']);
   });
 
   it('should throw UnauthorizedException for invalid/expired token', async () => {
