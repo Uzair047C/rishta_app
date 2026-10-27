@@ -1,5 +1,5 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
-import { Pool, PoolClient } from 'pg';
+import { Injectable, OnModuleDestroy, OnModuleInit, Logger } from '@nestjs/common';
+import { Pool, PoolClient, PoolConfig } from 'pg';
 
 export interface QueryResultLike {
   rows: any[];
@@ -86,12 +86,25 @@ export class Repo<T> extends Reader {
 }
 
 @Injectable()
-export class Db extends Reader implements Queryable, OnModuleDestroy {
+export class Db extends Reader implements Queryable, OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(Db.name);
   /** ponytail: fixed pool of 10. Raise max if p99 latency tracks pool wait. */
   private readonly pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     max: 10,
+    ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
   });
+
+  constructor() {
+    super();
+    this.pool.on('error', (err) => {
+      this.logger.error('Unexpected pool error', err);
+    });
+  }
+
+  onModuleInit() {
+    // Pool is ready; connection errors are handled by the 'error' event above
+  }
 
   query(sql: string, params: unknown[] = []): Promise<QueryResultLike> {
     return this.pool.query(sql, params);
@@ -105,14 +118,24 @@ export class Db extends Reader implements Queryable, OnModuleDestroy {
   /** Runs fn in a transaction, rolling back on any throw. */
   async tx<R>(fn: (conn: Queryable) => Promise<R>): Promise<R> {
     const client: PoolClient = await this.pool.connect();
+    let originalErr: unknown;
     try {
       await client.query('BEGIN');
       const out = await fn(client);
       await client.query('COMMIT');
       return out;
     } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
+      originalErr = err;
+      try {
+        await client.query('ROLLBACK');
+      } catch (rbErr) {
+        this.logger.error('ROLLBACK failed', rbErr);
+        // Attach rollback error as cause to original error
+        if (originalErr instanceof Error && rbErr instanceof Error) {
+          (originalErr as Error & { cause?: Error }).cause = rbErr;
+        }
+      }
+      throw originalErr;
     } finally {
       client.release();
     }

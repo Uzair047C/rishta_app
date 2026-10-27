@@ -8,7 +8,6 @@ import {
   IsNumber,
   IsOptional,
   IsString,
-  IsUrl,
   Max,
   MaxLength,
   Min,
@@ -16,8 +15,10 @@ import {
 } from 'class-validator';
 import { Public } from '../auth/public.decorator';
 import { UsersService } from '../users/users.service';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { ProfileInput, ProfileService } from './profile.service';
 import { Gender, MaritalStatus, ReligiousPracticeLevel, Sect } from '../db/types';
+import { PhotosService } from '../photos/photos.service';
 
 const GENDERS: Gender[] = ['male', 'female', 'other'];
 const MARITAL: MaritalStatus[] = ['never_married', 'divorced', 'separated', 'annulled', 'widowed', 'married'];
@@ -55,12 +56,12 @@ class ProfileDto implements ProfileInput {
 }
 
 class PhotoDto {
-  @IsUrl({ require_tld: false }) url!: string;
+  @IsString() @MaxLength(512) objectPath!: string; // e.g., "photos/user-uuid/photo1.jpg"
   @IsOptional() @IsBoolean() makePrimary?: boolean;
 }
 
 class SetPhotosDto {
-  @IsArray() @IsUrl({ require_tld: false }, { each: true }) urls!: string[];
+  @IsArray() @IsString({ each: true }) @MaxLength(512, { each: true }) objectPaths!: string[];
 }
 
 @Controller('profile')
@@ -68,10 +69,10 @@ export class ProfileController {
   constructor(
     private readonly profiles: ProfileService,
     private readonly users: UsersService,
+    private readonly photos: PhotosService,
   ) {}
 
   /** Closed tag set — what makes interest-overlap ranking computable. */
-  @Public()
   @Get('interests')
   async tags() {
     const [interests, languages] = await Promise.all([
@@ -120,32 +121,24 @@ export class ProfileController {
     return this.profiles.personalityTraits();
   }
 
-  @Public()
   @Get()
-  async me() {
-    const user = await this.users.require();
-    return this.profiles.me(user.id);
+  async me(@CurrentUser() userId: string) {
+    return this.profiles.me(userId);
   }
 
-  @Public()
   @Post()
-  async save(@Body() dto: ProfileDto) {
-    const user = await this.users.require();
-    return this.profiles.upsert(user, dto);
+  async save(@CurrentUser() userId: string, @Body() dto: ProfileDto) {
+    return this.profiles.upsert(userId, dto);
   }
 
-  @Public()
   @Post('photo')
-  async addPhoto(@Body() dto: PhotoDto) {
-    const user = await this.users.require();
-    return this.profiles.addPhoto(user.id, dto.url, dto.makePrimary);
+  async addPhoto(@CurrentUser() userId: string, @Body() dto: PhotoDto) {
+    return this.photos.addPhoto({ userId, objectPath: dto.objectPath, makePrimary: dto.makePrimary });
   }
 
-  @Public()
   @Post('photos')
-  async setPhotos(@Body() dto: SetPhotosDto) {
-    const user = await this.users.require();
-    return this.profiles.setPhotos(user.id, dto.urls);
+  async setPhotos(@CurrentUser() userId: string, @Body() dto: SetPhotosDto) {
+    return this.photos.setPhotos(userId, dto.objectPaths);
   }
 }
 

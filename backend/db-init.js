@@ -27,17 +27,32 @@ async function main() {
   const client = new Client({ connectionString: url });
   await client.connect();
   const base = __dirname;
-  const schema = fs.readFileSync(path.join(base, 'sql', 'schema.sql'), 'utf8');
-  const seed = fs.readFileSync(path.join(base, 'sql', 'seed.sql'), 'utf8');
 
-  console.log(`Connected. Applying schema.sql (${schema.length} bytes) …`);
-  await client.query(schema);
-  console.log('schema.sql applied.');
+  // Apply migrations in order
+  const migrationsDir = path.join(base, 'sql', 'migrations');
+  if (fs.existsSync(migrationsDir)) {
+    const migrationFiles = fs.readdirSync(migrationsDir)
+      .filter(f => f.endsWith('.sql'))
+      .sort();
+    for (const file of migrationFiles) {
+      const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+      console.log(`Applying migration ${file} (${sql.length} bytes) …`);
+      await client.query(sql);
+      console.log(`Migration ${file} applied.`);
+    }
+  }
 
-  console.log(`Applying seed.sql (${seed.length} bytes) …`);
-  await client.query(seed);
-  console.log('seed.sql applied. Done.');
+  // Seed only in development (NODE_ENV !== 'production')
+  if (process.env.NODE_ENV !== 'production') {
+    const seed = fs.readFileSync(path.join(base, 'sql', 'seed.sql'), 'utf8');
+    console.log(`Applying seed.sql (${seed.length} bytes) …`);
+    await client.query(seed);
+    console.log('seed.sql applied.');
+  } else {
+    console.log('Skipping seed.sql (NODE_ENV=production)');
+  }
 
+  console.log('Done.');
   await client.end();
 }
 

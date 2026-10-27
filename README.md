@@ -20,8 +20,7 @@ npm run dev                   # nest start --watch on :3000
 npm run typecheck             # tsc --noEmit
 ```
 
-`GET /auth/health` is public and confirms the process is up without needing
-Firebase credentials.
+`GET /auth/me` returns the current user's profile. `GET /auth/stream-token` issues a Stream Chat token.
 
 ### Where the critical rules live
 
@@ -43,8 +42,7 @@ future code path that forgets a rule still cannot break it:
 
 - **`Repo<T>`** (`src/db/db.ts`) — one generic table gateway for every table.
   Table and column names come from server-authored code, never a request body.
-- **Stream tokens** (`src/auth/stream-token.ts`) — a 10-line HS256 JWT via
-  `node:crypto` instead of pulling in `stream-chat`'s server SDK for one token.
+- **Stream tokens** (`src/auth/auth.service.ts:getStreamToken`) — a Stream token via `stream-chat` SDK.
 - **Moderation** (`src/moderation/`) — flags for human review rather than
   hard-blocking, per §2.5. Both providers degrade to passthrough when their
   credentials are absent, so the pipeline is exercisable in development. In
@@ -62,9 +60,6 @@ flutter run --dart-define=API_BASE=http://10.0.2.2:3000 \
             --dart-define=STREAM_API_KEY=your_stream_key
 ```
 
-Requires `google-services.json` (Android) / `GoogleService-Info.plist` (iOS) for
-Firebase. No generated `firebase_options.dart` is needed unless you target web
-or macOS as well.
 
 `10.0.2.2` is the Android emulator's alias for the host machine.
 

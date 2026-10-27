@@ -19,6 +19,12 @@ export interface UserRow {
   lat: number | null;
   lng: number | null;
   device_id: string | null;
+  auth_provider: string | null;
+  provider_subject: string | null;
+  email_verified: boolean;
+  firebase_uid: string | null;
+  status: 'active' | 'suspended' | 'banned' | null;
+  is_admin: boolean;
   created_at: Date;
 }
 
@@ -105,5 +111,6 @@ export interface FeedCard {
   photos: string[];
   verification_status: VerificationStatus;
   shared_interests: number;
-  distance_km: number | null;
+  // Coarse distance bucket for privacy (e.g., "< 5 km", "5–10 km", "10–25 km", "25–50 km", "50+ km")
+  distance_bucket: string | null;
 }

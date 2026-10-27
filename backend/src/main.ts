@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { Logger, ValidationPipe, INestApplication } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
@@ -7,20 +7,49 @@ import { AppModule } from './app.module';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
-  // Enable CORS for Flutter web app
+  // Dev stub guard: provision() in UsersService returns first user (LIMIT 1).
+  // If that code path is ever used in production, throw.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Dev auth stub (UsersService.provision) must not be used in production');
+  }
+
+  // Auth is a dev stub (UsersService.provision returns LIMIT 1) — not for production use
+  Logger.warn('Auth is a dev stub (UsersService.provision returns LIMIT 1)', 'Bootstrap');
+
+  // Trust proxy for correct IP addresses behind reverse proxy (nginx, cloudflare, etc.)
+  // Enable via TRUST_PROXY=true in production
+  if (process.env.TRUST_PROXY === 'true') {
+    app.getHttpAdapter().getInstance().set('trust proxy', true);
+  }
+
+  // Enable CORS with explicit allowlist from env (CORS_ORIGINS, comma-separated).
+  // No default allowlist in production - must be configured explicitly.
+  const corsEnv = process.env.CORS_ORIGINS ?? '';
+  const corsOrigins = corsEnv
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  if (corsOrigins.length === 0 && process.env.NODE_ENV === 'production') {
+    throw new Error('CORS_ORIGINS must be set in production');
+  }
+  const defaultOrigins = process.env.NODE_ENV !== 'production'
+    ? ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:8080', 'http://127.0.0.1:3000', 'http://127.0.0.1:3001', 'http://127.0.0.1:8080']
+    : [];
   app.enableCors({
-    origin: true,
+    origin: corsOrigins.length > 0 ? corsOrigins : defaultOrigins,
     credentials: true,
   });
 
-  // Simple request logging middleware
+  // Simple request logging middleware (redact auth headers)
   app.use((req: Request, res: Response, next: NextFunction) => {
     const logger = new Logger('Request');
-    logger.log(`${req.method} ${req.url}`);
+    const authHeader = req.headers['authorization'];
+    const safeUrl = authHeader ? req.url.replace(/\?.*$/, '') : req.url; // don't log query params on auth routes
+    logger.log(`${req.method} ${safeUrl}`);
     const start = Date.now();
     res.on('finish', () => {
       const duration = Date.now() - start;
-      logger.log(`${req.method} ${req.url} ${res.statusCode} - ${duration}ms`);
+      logger.log(`${req.method} ${safeUrl} ${res.statusCode} - ${duration}ms`);
     });
     next();
   });
@@ -28,14 +57,11 @@ async function bootstrap(): Promise<void> {
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
-      // Reject rather than silently drop unknown fields — a typo'd key should
-      // surface as an error, not as a silently ignored update.
       forbidNonWhitelisted: true,
       transform: true,
     }),
   );
 
-  // Lets the nightly quota cron finish and the pg pool drain on SIGTERM.
   app.enableShutdownHooks();
 
   const port = Number(process.env.PORT ?? 3000);

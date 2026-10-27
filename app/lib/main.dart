@@ -13,6 +13,9 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   debugPrint('Main: Starting app');
 
+  // Initialize Google Sign-In
+  await GoogleSignInService.initialize();
+
   debugPrint('Main: Running app');
   runApp(const ProviderScope(child: RishtaApp()));
 }
@@ -33,7 +36,7 @@ class RishtaApp extends ConsumerWidget {
       builder: (context, child) {
         return child ?? const SizedBox.shrink();
       },
-      home: const HomeShell(),
+      home: const AuthWrapper(),
     );
   }
 }

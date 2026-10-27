@@ -11,9 +11,16 @@ import '../../core/widgets.dart';
 
 /// Live selfie capture for profile photo, in-app camera only.
 class SelfieScreen extends ConsumerStatefulWidget {
-  const SelfieScreen({super.key, required this.onDone});
+  const SelfieScreen({
+    super.key,
+    required this.onDone,
+    this.currentStep = 0,
+    this.totalSteps = 14,
+  });
 
   final VoidCallback onDone;
+  final int currentStep;
+  final int totalSteps;
 
   @override
   ConsumerState<SelfieScreen> createState() => _SelfieScreenState();

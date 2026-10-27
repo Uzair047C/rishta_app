@@ -1,11 +1,24 @@
 import { Module } from '@nestjs/common';
-import { GoogleStrategy } from './google.strategy';
-import { UsersService } from '../users/users.service';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
+import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { JwtModule } from '@nestjs/jwt';
+import { UsersService } from '../users/users.service';
+import { JwtAuthGuard } from './jwt-auth.guard';
+import { Db } from '../db/db';
 
 @Module({
-  imports: [JwtModule.register({})],
-  providers: [GoogleStrategy, UsersService, AuthService],
+  controllers: [AuthController],
+  providers: [
+    AuthService,
+    UsersService,
+    JwtService,
+    ConfigService,
+    Reflector,
+    JwtAuthGuard,
+    Db,
+  ],
+  exports: [AuthService, JwtService, JwtAuthGuard],
 })
 export class AuthModule {}

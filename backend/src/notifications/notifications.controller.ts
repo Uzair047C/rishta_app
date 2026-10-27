@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Post, Put } from '@nestjs/common';
 import { IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
-import { Public } from '../auth/public.decorator';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { UsersService } from '../users/users.service';
 import { Db } from '../db/db';
 
@@ -32,10 +32,9 @@ export class NotificationsController {
   ) {}
 
   /** Spec 1.2 — per-category toggles are expected by both app stores. */
-  @Public()
   @Get('preferences')
-  async get() {
-    const user = await this.users.require();
+  async get(@CurrentUser() userId: string) {
+    const user = await this.users.requireOnboarded(userId);
     // Defaults live in the schema; a missing row means "never configured".
     const row = await this.db.one<Record<string, boolean>>(
       `INSERT INTO notification_preferences (user_id) VALUES ($1)
@@ -51,12 +50,11 @@ export class NotificationsController {
     };
   }
 
-  @Public()
   @Put('preferences')
-  async update(@Body() dto: PreferencesDto) {
-    const user = await this.users.require();
+  async update(@CurrentUser() userId: string, @Body() dto: PreferencesDto) {
+    const user = await this.users.requireOnboarded(userId);
     const entries = Object.entries(dto).filter(([, v]) => v !== undefined);
-    if (!entries.length) return this.get();
+    if (!entries.length) return this.get(userId);
 
     const assignments = entries.map(([k], i) => `${COLUMNS[k as keyof PreferencesDto]} = $${i + 2}`);
     const values = entries.map(([, v]) => v);
@@ -70,14 +68,13 @@ export class NotificationsController {
       `UPDATE notification_preferences SET ${assignments.join(', ')} WHERE user_id = $1`,
       [user.id, ...values],
     );
-    return this.get();
+    return this.get(userId);
   }
 
   /** Client calls this after FCM hands it a token. */
-  @Public()
   @Post('device')
-  async registerDevice(@Body() dto: DeviceDto) {
-    const user = await this.users.require();
+  async registerDevice(@CurrentUser() userId: string, @Body() dto: DeviceDto) {
+    const user = await this.users.requireOnboarded(userId);
     // Token is the PK: a device that changes hands must move to the new owner.
     await this.db.query(
       `INSERT INTO device_tokens (token, user_id, platform) VALUES ($1, $2, $3)
@@ -87,10 +84,9 @@ export class NotificationsController {
     return { registered: true };
   }
 
-  @Public()
   @Delete('device')
-  async unregisterDevice(@Body() dto: DeviceDto) {
-    const user = await this.users.require();
+  async unregisterDevice(@CurrentUser() userId: string, @Body() dto: DeviceDto) {
+    const user = await this.users.requireOnboarded(userId);
     await this.db.query('DELETE FROM device_tokens WHERE token = $1 AND user_id = $2', [
       dto.token,
       user.id,

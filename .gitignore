@@ -71,7 +71,7 @@ build/
 *.dll
 *.zip
 *.log
-logs_problem.logs
+*.logs
 
 # Flutter & Dart
 .dart_tool/
@@ -85,6 +85,29 @@ logs_problem.logs
 node_modules/
 backend/dist/
 backend/node_modules/
-*.env*
+*.env
 !*.env.example
 
+# IDEs
+.idea/
+.antigravity/
+.vscode/
+
+# Logs & debug files
+logs_problem.logs
+debug_*.py
+app/log.txt
+app/get-pip.py
+query
+MEMORY_UPDATE.md
+
+# Build artifacts
+dist/
+backend/dist/
+.env
+*.log
+*.logs
+
+# OS files
+.DS_Store
+Thumbs.db

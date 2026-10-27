@@ -1,5 +1,5 @@
 import { Controller, Delete, Get, NotFoundException, Param, ParseUUIDPipe } from '@nestjs/common';
-import { Public } from '../auth/public.decorator';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { UsersService } from '../users/users.service';
 import { Db } from '../db/db';
 
@@ -11,8 +11,8 @@ export class MatchesController {
   ) {}
 
   @Get()
-  async list() {
-    const user = await this.users.requireOnboarded();
+  async list(@CurrentUser() userId: string) {
+    const user = await this.users.requireOnboarded(userId);
     const matches = await this.db.all(
       `SELECT m.id AS match_id, m.matched_at,
               u.id AS user_id, u.gender, u.location,
@@ -34,18 +34,38 @@ export class MatchesController {
     return { matches };
   }
 
-  /** Spec 1.2 — unmatch is distinct from report/block; it only ends the match. */
-  @Public()
+  /** Spec 1.2 — unmatch is distinct from report/block; it only ends the match.
+   * Fixed: On unmatch, delete both directed likes so match cannot be revived via like flow.
+   * This prevents the bug where ON CONFLICT SET unmatched_at = NULL would revive a match.
+   */
   @Delete(':id')
-  async unmatch(@Param('id', ParseUUIDPipe) id: string) {
-    const user = await this.users.require();
-    const updated = await this.db.query(
-      `UPDATE matches SET unmatched_at = now()
-        WHERE id = $1 AND unmatched_at IS NULL AND (user_a_id = $2 OR user_b_id = $2)
-        RETURNING id`,
+  async unmatch(@CurrentUser() userId: string, @Param('id', ParseUUIDPipe) id: string) {
+    const user = await this.users.requireOnboarded(userId);
+
+    // First get the match to find both user IDs
+    const match = await this.db.one<{ user_a_id: string; user_b_id: string }>(
+      `SELECT user_a_id, user_b_id FROM matches WHERE id = $1 AND unmatched_at IS NULL AND (user_a_id = $2 OR user_b_id = $2)`,
       [id, user.id],
     );
-    if (!updated.rowCount) throw new NotFoundException('match_not_found');
+    if (!match) throw new NotFoundException('match_not_found');
+
+    // Delete the match and both directed likes in a transaction
+    await this.db.tx(async (conn) => {
+      // Set unmatched_at on the match
+      await conn.query(
+        `UPDATE matches SET unmatched_at = now() WHERE id = $1`,
+        [id],
+      );
+
+      // Delete both directed likes to prevent revival
+      await conn.query(
+        `DELETE FROM likes
+         WHERE (from_user_id = $1 AND to_user_id = $2)
+            OR (from_user_id = $2 AND to_user_id = $1)`,
+        [match.user_a_id, match.user_b_id],
+      );
+    });
+
     return { unmatched: true, matchId: id };
   }
 }
