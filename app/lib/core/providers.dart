@@ -44,9 +44,9 @@ abstract class RemoteAsync<T> extends AsyncNotifier<T> {
   @override
   Future<T> build() => fetch(api);
 
-  /// Re-fetches, surfacing loading then either data or a mapped error.
+  /// Re-fetches, keeping previous data visible while refetching.
+  /// Uses AsyncValue.guard so the UI doesn't flicker.
   Future<void> reload() async {
-    state = const AsyncValue.loading();
     state = await AsyncValue.guard(() => fetch(api));
   }
 }
@@ -89,7 +89,7 @@ final tagsProvider = FutureProvider<({List<Tag> interests, List<Tag> languages})
 /// Interest categories for the onboarding flow.
 final interestCategoriesProvider = FutureProvider<List<TagCategory>>((ref) async {
   final api = ref.watch(apiProvider);
-  return api.get('/interest-categories', (j) {
+  return api.get('/profile/interest-categories', (j) {
     final map = j as Map<String, dynamic>;
     final categoriesJson = Json.children(map, 'categories', (j) => j);
     return categoriesJson.map((categoryJson) {
@@ -108,7 +108,7 @@ final interestCategoriesProvider = FutureProvider<List<TagCategory>>((ref) async
 /// Personality categories for the onboarding flow.
 final personalityCategoriesProvider = FutureProvider<List<TagCategory>>((ref) async {
   final api = ref.watch(apiProvider);
-  return api.get('/personality-categories', (j) {
+  return api.get('/profile/personality-categories', (j) {
     final map = j as Map<String, dynamic>;
     final categoriesJson = Json.children(map, 'categories', (j) => j);
     return categoriesJson.map((categoryJson) {
@@ -152,16 +152,68 @@ final feedFiltersProvider = StateProvider<FeedFilters>((_) => const FeedFilters(
 
 /// -------------------------------------------------------------- feed
 
+/// Feed cursor for keyset pagination.
+class FeedCursor {
+  const FeedCursor({
+    required this.sharedInterests,
+    this.distanceKm,
+    required this.userId,
+  });
+
+  final int sharedInterests;
+  final double? distanceKm;
+  final String userId;
+
+  Map<String, Object?> toQuery() => {
+        'cursor': {
+          'shared_interests': sharedInterests,
+          'distance_km': distanceKm,
+          'user_id': userId,
+        },
+      };
+}
+
 final feedProvider = AsyncNotifierProvider<FeedNotifier, List<FeedCard>>(FeedNotifier.new);
 
 class FeedNotifier extends RemoteAsync<List<FeedCard>> {
+  /// Current cursor for pagination.
+  FeedCursor? _cursor;
+
   @override
-  Future<List<FeedCard>> fetch(Api api) => api.listOf(
-        '/feed',
-        FeedCard.fromJson,
-        query: ref.read(feedFiltersProvider).toQuery(),
-        key: 'candidates',
-      );
+  Future<List<FeedCard>> fetch(Api api) {
+    final baseQuery = ref.read(feedFiltersProvider).toQuery();
+    final cursorQuery = _cursor?.toQuery()['cursor'] as Map<String, Object?>?;
+    final query = {
+      ...baseQuery,
+      if (cursorQuery != null) ...cursorQuery,
+    };
+    return api.listOf(
+      '/feed',
+      FeedCard.fromJson,
+      query: query,
+      key: 'candidates',
+    );
+  }
+
+  /// Load next page of feed.
+  Future<void> loadMore() async {
+    final current = state.valueOrNull;
+    if (current == null || current.length < 5) return; // Only load more when 5 cards remain
+
+    final last = current.last;
+    _cursor = FeedCursor(
+      sharedInterests: last.sharedInterests,
+      distanceKm: last.distanceKm,
+      userId: last.userId,
+    );
+    await reload();
+  }
+
+  /// Reset to first page.
+  Future<void> reset() async {
+    _cursor = null;
+    await reload();
+  }
 
   /// Optimistically drops the swiped card, then reconciles the quota from the
   /// server response — the server's count is authoritative, never an estimate.
@@ -180,17 +232,29 @@ class FeedNotifier extends RemoteAsync<List<FeedCard>> {
   }
 
   Future<void> pass(FeedCard card) async {
-    await api.post('/feed/pass', body: {'userId': card.userId});
-    _drop(card.userId);
+    final previous = state.valueOrNull ?? const <FeedCard>[];
+    try {
+      await api.post('/feed/pass', body: {'userId': card.userId});
+      _drop(card.userId);
+    } on ApiException {
+      state = AsyncValue.data(previous);
+      rethrow;
+    }
   }
 
   Future<void> block(FeedCard card, {String? reason}) async {
-    await api.post('/feed/block', body: {
-      'userId': card.userId,
-      if (reason != null) 'reason': reason,
-    });
-    _drop(card.userId);
-    ref.invalidate(matchesProvider);
+    final previous = state.valueOrNull ?? const <FeedCard>[];
+    try {
+      await api.post('/feed/block', body: {
+        'userId': card.userId,
+        if (reason != null) 'reason': reason,
+      });
+      _drop(card.userId);
+      ref.invalidate(matchesProvider);
+    } on ApiException {
+      state = AsyncValue.data(previous);
+      rethrow;
+    }
   }
 
   void _drop(String userId) {

@@ -318,6 +318,7 @@ class TagItem {
         iconCode: j['icon'] != null ? (j['icon'] as int) : null,
       );
 
-  IconData? get icon => null;
+  // ignore: non_const_argument_for_const_parameter
+  IconData? get icon => iconCode != null ? IconData(iconCode!, fontFamily: 'MaterialIcons') : null;
 }
 
