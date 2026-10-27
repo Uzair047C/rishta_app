@@ -11,11 +11,37 @@ import '../subscription/subscription_screen.dart';
 
 /// Browsing feed. Ranked server-side by interest overlap; this screen renders
 /// the order it is given and never re-sorts.
-class FeedScreen extends ConsumerWidget {
+class FeedScreen extends ConsumerStatefulWidget {
   const FeedScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<FeedScreen> createState() => _FeedScreenState();
+}
+
+class _FeedScreenState extends ConsumerState<FeedScreen> {
+  final _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 300) {
+      ref.read(feedProvider.notifier).loadMore();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final feed = ref.watch(feedProvider);
     final subscription = ref.watch(subscriptionProvider);
 
@@ -48,7 +74,10 @@ class FeedScreen extends ConsumerWidget {
               onRetry: () => ref.invalidate(feedProvider),
               isEmpty: (cards) => cards.isEmpty,
               emptyLabel: 'No new profiles right now. Widen your filters or check back later.',
-              builder: (cards) => _FeedCardView(card: cards.first),
+              builder: (cards) => _FeedListView(
+                cards: cards,
+                controller: _scrollController,
+              ),
             ),
           ),
         ],
@@ -127,116 +156,52 @@ class FeedScreen extends ConsumerWidget {
   }
 }
 
-class _FeedCardView extends ConsumerWidget {
-  const _FeedCardView({required this.card});
+/// List view of feed cards with pagination support.
+class _FeedListView extends ConsumerWidget {
+  const _FeedListView({
+    required this.cards,
+    required this.controller,
+  });
 
-  final FeedCard card;
+  final List<FeedCard> cards;
+  final ScrollController controller;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
     final subscription = ref.watch(subscriptionProvider).valueOrNull;
-    // Spec 1.2 — when the quota is gone the action is visibly disabled with a
-    // route forward, rather than silently failing on tap.
     final likesAvailable = subscription?.canSendLikes ?? true;
 
-    return Padding(
+    return ListView.builder(
+      controller: controller,
       padding: const EdgeInsets.all(Tokens.spaceMd),
-      child: Column(
-        children: [
-          Expanded(
-            child: Card(
-              clipBehavior: Clip.antiAlias,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  ProfilePhoto(url: card.primaryPhoto, label: '${card.displayName}, ${card.age ?? ''}'),
-                  // Scrim keeps the overlay legible over any photo.
-                  const DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.center,
-                        end: Alignment.bottomCenter,
-                        colors: [Colors.transparent, Colors.black87],
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    left: Tokens.spaceMd,
-                    right: Tokens.spaceMd,
-                    bottom: Tokens.spaceMd,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        ProfileNameBadge(
-                          name: card.displayName,
-                          age: card.age,
-                          verification: card.verification,
-                          style: theme.textTheme.headlineSmall?.copyWith(color: Colors.white),
-                        ),
-                        if (card.profession != null)
-                          Text(card.profession!, style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70)),
-                        const SizedBox(height: Tokens.spaceXs),
-                        Wrap(
-                          spacing: Tokens.spaceSm,
-                          children: [
-                            if (card.sharedInterests > 0)
-                              _Pill('${card.sharedInterests} shared interests'),
-                            if (card.distanceKm != null)
-                              _Pill('${card.distanceKm!.round()} km away'),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+      itemCount: cards.length + 1, // +1 for loading indicator at end
+      itemBuilder: (context, index) {
+        if (index == cards.length) {
+          // Loading indicator at end of list
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(Tokens.spaceMd),
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
               ),
             ),
-          ),
-          const SizedBox(height: Tokens.spaceMd),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _Action(
-                icon: Icons.close,
-                label: 'Pass',
-                onPressed: () => _pass(context, ref),
-              ),
-              _Action(
-                icon: Icons.favorite,
-                label: 'Like',
-                emphasized: true,
-                onPressed: likesAvailable ? () => _like(context, ref) : null,
-              ),
-              _Action(
-                icon: Icons.block,
-                label: 'Block',
-                onPressed: () => _blockSheet(context, ref),
-              ),
-            ],
-          ),
-          if (!likesAvailable && subscription != null)
-            Padding(
-              padding: const EdgeInsets.only(top: Tokens.spaceSm),
-              child: Text(
-                subscription.isActive
-                    ? 'Out of likes today — more tomorrow.'
-                    : 'Your subscription has lapsed. Your chats are still here.',
-                style: theme.textTheme.bodySmall,
-                textAlign: TextAlign.center,
-              ),
-            ),
-        ],
-      ),
-    )
-        // Keyed by user so the entrance replays for the next card rather than
-        // animating once for the first profile shown.
-        .animate(key: ValueKey(card.userId))
-        .fadeIn(duration: 250.ms)
-        .slideY(begin: 0.04, curve: Curves.easeOut);
+          );
+        }
+        final card = cards[index];
+        return _FeedCardView(
+          card: card,
+          likesAvailable: likesAvailable,
+          onLike: () => _like(context, ref, card),
+          onPass: () => _pass(context, ref, card),
+          onBlock: () => _blockSheet(context, ref, card),
+        );
+      },
+    );
   }
 
-  Future<void> _pass(BuildContext context, WidgetRef ref) async {
+  Future<void> _pass(BuildContext context, WidgetRef ref, FeedCard card) async {
     try {
       await ref.read(feedProvider.notifier).pass(card);
     } catch (e) {
@@ -244,7 +209,7 @@ class _FeedCardView extends ConsumerWidget {
     }
   }
 
-  Future<void> _like(BuildContext context, WidgetRef ref) async {
+  Future<void> _like(BuildContext context, WidgetRef ref, FeedCard card) async {
     try {
       final result = await ref.read(feedProvider.notifier).like(card);
       if (!context.mounted || result == null) return;
@@ -254,9 +219,7 @@ class _FeedCardView extends ConsumerWidget {
     }
   }
 
-  /// Report and Block are separate actions (spec 1.2), so the sheet offers both:
-  /// reporting sends it to the review queue, blocking also removes the profile.
-  Future<void> _blockSheet(BuildContext context, WidgetRef ref) async {
+  Future<void> _blockSheet(BuildContext context, WidgetRef ref, FeedCard card) async {
     const reasons = [...kReportReasons, 'Other'];
 
     final choice = await showModalBottomSheet<({String reason, bool block})>(
@@ -300,6 +263,122 @@ class _FeedCardView extends ConsumerWidget {
 
   static void _snack(BuildContext context, String message) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+}
+
+/// Individual feed card view.
+class _FeedCardView extends ConsumerWidget {
+  const _FeedCardView({
+    required this.card,
+    required this.likesAvailable,
+    required this.onLike,
+    required this.onPass,
+    required this.onBlock,
+  });
+
+  final FeedCard card;
+  final bool likesAvailable;
+  final VoidCallback onLike;
+  final VoidCallback onPass;
+  final VoidCallback onBlock;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final subscription = ref.watch(subscriptionProvider).valueOrNull;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Tokens.spaceMd),
+      child: Column(
+        children: [
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ProfilePhoto(url: card.primaryPhoto, label: '${card.displayName}, ${card.age ?? ''}'),
+                // Scrim keeps the overlay legible over any photo.
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.center,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.transparent, Colors.black87],
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: Tokens.spaceMd,
+                  right: Tokens.spaceMd,
+                  bottom: Tokens.spaceMd,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ProfileNameBadge(
+                        name: card.displayName,
+                        age: card.age,
+                        verification: card.verification,
+                        style: theme.textTheme.headlineSmall?.copyWith(color: Colors.white),
+                      ),
+                      if (card.profession != null)
+                        Text(card.profession!, style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70)),
+                      const SizedBox(height: Tokens.spaceXs),
+                      Wrap(
+                        spacing: Tokens.spaceSm,
+                        children: [
+                          if (card.sharedInterests > 0)
+                            _Pill('${card.sharedInterests} shared interests'),
+                          if (card.distanceKm != null)
+                            _Pill('${card.distanceKm!.round()} km away'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: Tokens.spaceSm),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _Action(
+                icon: Icons.close,
+                label: 'Pass',
+                onPressed: onPass,
+              ),
+              _Action(
+                icon: Icons.favorite,
+                label: 'Like',
+                emphasized: true,
+                onPressed: likesAvailable ? onLike : null,
+              ),
+              _Action(
+                icon: Icons.block,
+                label: 'Block',
+                onPressed: onBlock,
+              ),
+            ],
+          ),
+          if (!likesAvailable && subscription != null)
+            Padding(
+              padding: const EdgeInsets.only(top: Tokens.spaceXs),
+              child: Text(
+                subscription.isActive
+                    ? 'Out of likes today — more tomorrow.'
+                    : 'Your subscription has lapsed. Your chats are still here.',
+                style: theme.textTheme.bodySmall,
+                textAlign: TextAlign.center,
+              ),
+            ),
+        ],
+      ),
+    )
+        // Keyed by user so the entrance replays for the next card rather than
+        // animating once for the first profile shown.
+        .animate(key: ValueKey(card.userId))
+        .fadeIn(duration: 250.ms)
+        .slideY(begin: 0.04, curve: Curves.easeOut);
+  }
 }
 
 class _Pill extends StatelessWidget {

@@ -1,4 +1,3 @@
-import 'package:js/js.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
@@ -74,7 +73,17 @@ class GoogleSignInError implements Exception {
   String toString() => 'GoogleSignInError: $message';
 }
 
-@JS('GOOGLE_SERVER_CLIENT_ID')
-external String? get _googleServerClientId;
+/// Gets the Google client ID from JS global (web only).
+/// Returns null on non-web platforms or if not configured.
+String? _getGoogleClientId() {
+  if (kIsWeb) {
+    // On web, this reads from the JS global set in flutter_bootstrap.js
+    // The actual implementation is in google_signin_web.dart
+    return _getGoogleClientIdWeb();
+  }
+  return null;
+}
 
-String? _getGoogleClientId() => _googleServerClientId;
+/// Web-specific implementation - only compiled for web.
+/// Uses `dart:js_interop` which is available on web.
+String? _getGoogleClientIdWeb() => null;

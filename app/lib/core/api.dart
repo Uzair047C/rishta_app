@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import 'package:http/http.dart' as http;
 import 'auth_storage.dart';
+import 'config_provider.dart';
 
 /// Server error codes the UI branches on. Anything unrecognised becomes [unknown]
 /// so a new backend code degrades to a generic message instead of crashing.
@@ -67,12 +69,11 @@ class Api {
     String? baseUrl,
     AuthStorage? authStorage,
   }) : _client = client ?? http.Client(),
-       _base = baseUrl ??
-           const String.fromEnvironment('API_BASE', defaultValue: 'http://localhost:3000'),
+       _base = baseUrl,
        _authStorage = authStorage ?? AuthStorage();
 
   final http.Client _client;
-  final String _base;
+  final String? _base; // nullable initially, resolved on first request
   final AuthStorage _authStorage;
 
   static const _timeout = Duration(seconds: 20);
@@ -104,6 +105,18 @@ class Api {
   Future<T> delete<T>(String path, {Object? body, T Function(Object? json)? parse, bool requiresAuth = true}) =>
       request('DELETE', path, body: body, parse: parse ?? (json) => json as T, requiresAuth: requiresAuth);
 
+  /// Resolves the base URL from platform config on first use.
+  Future<String> _resolveBase() async {
+    final base = _base;
+    if (base != null) return base;
+    final apiBase = await ConfigProvider.instance.getApiBase();
+    // Enforce HTTPS for release builds (prod flavor)
+    if (!kDebugMode && !apiBase.startsWith('https://')) {
+      throw ApiException(0, 'insecure_api_base', 'Release builds require HTTPS API_BASE');
+    }
+    return apiBase;
+  }
+
   Future<T> request<T>(
     String method,
     String path, {
@@ -112,7 +125,8 @@ class Api {
     Map<String, Object?>? query,
     bool requiresAuth = true,
   }) async {
-    final uri = Uri.parse('$_base$path').replace(
+    final base = await _resolveBase();
+    final uri = Uri.parse('$base$path').replace(
       queryParameters: query?.map((k, v) => MapEntry(k, v?.toString())),
     );
 
@@ -131,15 +145,29 @@ class Api {
 
     // Request logging
     if (kDebugMode) {
-      debugPrint('API Request: $method $_base$path');
+      debugPrint('API Request: $method $base$path');
       if (query?.isNotEmpty ?? false) debugPrint('  Query: $query');
       if (body != null) debugPrint('  Body: $body');
     }
 
     final startTime = DateTime.now();
-    final response = await http.Response.fromStream(await _client.send(request)).timeout(_timeout);
+    // Wrap send AND body read in the same timeout
+    final stream = _client.send(request);
+    final http.StreamedResponse streamedResponse;
+    try {
+      streamedResponse = await stream.timeout(_timeout);
+    } on TimeoutException {
+      throw ApiException(0, 'timeout', 'Request timed out');
+    }
+    final response = await http.Response.fromStream(streamedResponse).timeout(_timeout);
     final duration = DateTime.now().difference(startTime).inMilliseconds;
-    final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
+
+    Object? decoded;
+    try {
+      decoded = response.body.isEmpty ? null : jsonDecode(response.body);
+    } on FormatException {
+      throw ApiException(response.statusCode, 'invalid_json', 'Non-JSON response: ${response.body}');
+    }
 
     // Response logging
     if (kDebugMode) {
@@ -195,8 +223,9 @@ class Api {
       final refreshToken = await _authStorage.getRefreshToken();
       if (refreshToken == null) return false;
 
+      final base = await _resolveBase();
       final response = await _client.post(
-        Uri.parse('$_base/auth/refresh'),
+        Uri.parse('$base/auth/refresh'),
         headers: {'content-type': 'application/json'},
         body: jsonEncode({'refreshToken': refreshToken}),
       ).timeout(_timeout);

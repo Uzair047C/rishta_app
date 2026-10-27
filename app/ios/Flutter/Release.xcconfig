@@ -1,1 +1,3 @@
 #include "Generated.xcconfig"
+
+API_BASE = https://api.rishta.app
