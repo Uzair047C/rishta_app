@@ -159,7 +159,7 @@ class Api {
         // Retry the request with new token
         final retryRequest = http.Request(method, uri)
           ..headers['content-type'] = 'application/json'
-          ..headers['authorization'] = 'Bearer ${_cachedAccessToken}';
+          ..headers['authorization'] = 'Bearer $_cachedAccessToken';
         if (body != null) retryRequest.body = jsonEncode(body);
 
         final startTime2 = DateTime.now();

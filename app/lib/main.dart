@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/core.dart';
-import 'features/auth/auth_wrapper.dart';
 import 'features/feed/feed_screen.dart';
 import 'features/matches/matches_screen.dart';
 import 'features/settings/settings_screen.dart';
