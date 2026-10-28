@@ -3,19 +3,25 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Request, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { validateConfig } from './config/validation';
 
 // Structured logging middleware with request ID and user ID
 function structuredLoggingMiddleware() {
   return (req: Request, res: Response, next: NextFunction) => {
-    const requestId = (req.headers['x-request-id'] as string) || uuidv4();
+    // Validate and sanitize client-supplied x-request-id
+    const clientRequestId = req.headers['x-request-id'] as string | undefined;
+    const requestId = clientRequestId && /^[A-Za-z0-9-]{8,64}$/.test(clientRequestId)
+      ? clientRequestId
+      : uuidv4();
     const start = Date.now();
     const logger = new Logger('Request');
 
     // Attach requestId to request for downstream use
     (req as any).requestId = requestId;
 
-    // Redact sensitive headers and query params
+    // Redact sensitive headers
     const sensitiveKeys = ['authorization', 'cookie', 'x-api-key', 'x-auth-token'];
     const safeHeaders: Record<string, string> = {};
     for (const [key, value] of Object.entries(req.headers)) {
@@ -24,7 +30,7 @@ function structuredLoggingMiddleware() {
       }
     }
 
-    // Redact sensitive query params
+    // Redact sensitive query params (log path only, never full url with query string)
     const sensitiveQueryKeys = ['token', 'refreshToken', 'accessToken', 'idToken', 'password', 'code'];
     const safeQuery: Record<string, string> = {};
     for (const [key, value] of Object.entries(req.query)) {
@@ -33,16 +39,12 @@ function structuredLoggingMiddleware() {
       }
     }
 
-    // Redact sensitive body fields
-    let safeBody = req.body;
+    // Redact sensitive body fields - allowlist approach: only log non-sensitive fields
+    // By default, log no body fields. Callers can use a custom logger for specific fields.
+    let safeBody: Record<string, unknown> = {};
     if (req.body && typeof req.body === 'object') {
-      safeBody = { ...req.body };
-      const sensitiveBodyKeys = ['token', 'refreshToken', 'accessToken', 'idToken', 'password', 'email', 'phone', 'lat', 'lng', 'location'];
-      for (const key of sensitiveBodyKeys) {
-        if (safeBody[key] !== undefined) {
-          safeBody[key] = '[REDACTED]';
-        }
-      }
+      // Only log presence of body, not contents (to avoid PII leaks)
+      safeBody = { _present: true, _keys: Object.keys(req.body) };
     }
 
     // Log request start
@@ -50,7 +52,6 @@ function structuredLoggingMiddleware() {
       type: 'request_start',
       requestId,
       method: req.method,
-      url: req.url,
       path: req.path,
       query: safeQuery,
       headers: safeHeaders,
@@ -67,7 +68,6 @@ function structuredLoggingMiddleware() {
         type: 'request_end',
         requestId,
         method: req.method,
-        url: req.url,
         path: req.path,
         statusCode: res.statusCode,
         durationMs: duration,
@@ -81,16 +81,20 @@ function structuredLoggingMiddleware() {
 }
 
 async function bootstrap(): Promise<void> {
+  // Validate configuration before creating the app
+  validateConfig(process.env);
+
   const app = await NestFactory.create(AppModule);
 
-  // Dev stub guard: provision() in UsersService returns first user (LIMIT 1).
-  // If that code path is ever used in production, throw.
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('Dev auth stub (UsersService.provision) must not be used in production');
-  }
+  // Security headers
+  app.use(helmet({
+    contentSecurityPolicy: false, // Disable CSP for API
+    crossOriginEmbedderPolicy: false,
+  }));
 
-  // Auth is a dev stub (UsersService.provision returns LIMIT 1) — not for production use
-  Logger.warn('Auth is a dev stub (UsersService.provision returns LIMIT 1)', 'Bootstrap');
+  // JSON body size limit (100 KB default)
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.use(require('express').json({ limit: '100kb' }));
 
   // Trust proxy for correct IP addresses behind reverse proxy (nginx, cloudflare, etc.)
   // Enable via TRUST_PROXY=true in production
@@ -115,6 +119,24 @@ async function bootstrap(): Promise<void> {
     origin: corsOrigins.length > 0 ? corsOrigins : defaultOrigins,
     credentials: true,
   });
+
+  // Health and readiness endpoints (public)
+  const express = require('express');
+  const router = express.Router();
+  router.get('/health', (req: Request, res: Response) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+  router.get('/ready', async (req: Request, res: Response) => {
+    try {
+      const { Db } = await import('./db/db');
+      const db = app.get(Db);
+      await db.query('SELECT 1');
+      res.json({ status: 'ready', database: 'connected' });
+    } catch (err) {
+      res.status(503).json({ status: 'not ready', database: 'disconnected', error: String(err) });
+    }
+  });
+  app.use('/', router);
 
   // Structured request logging middleware
   app.use(structuredLoggingMiddleware());

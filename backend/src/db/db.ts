@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit, Logger } from '@nestjs/common';
-import { Pool, PoolClient, PoolConfig } from 'pg';
+import { Pool, PoolClient } from 'pg';
+import { ConfigService } from '@nestjs/config';
 
 export interface QueryResultLike {
   rows: any[];
@@ -45,8 +46,15 @@ abstract class Reader {
  * come from server-authored code — never from a request body.
  */
 export class Repo<T> extends Reader {
-  constructor(private readonly conn: Queryable, readonly table: string) {
+  private readonly allowedColumns: Set<string>;
+
+  constructor(
+    private readonly conn: Queryable,
+    readonly table: string,
+    allowedColumns?: string[]
+  ) {
     super();
+    this.allowedColumns = new Set(allowedColumns ?? []);
   }
 
   query(sql: string, params: unknown[] = []): Promise<QueryResultLike> {
@@ -59,6 +67,13 @@ export class Repo<T> extends Reader {
 
   /** INSERT built from the object's own keys — one path for every table. */
   async insert(dto: Record<string, unknown>): Promise<T> {
+    if (this.allowedColumns.size > 0) {
+      for (const key of Object.keys(dto)) {
+        if (!this.allowedColumns.has(key)) {
+          throw new Error(`Unknown column: ${key} for table ${this.table}`);
+        }
+      }
+    }
     const keys = Object.keys(dto);
     const cols = keys.map((k) => `"${k}"`).join(', ');
     const holes = keys.map((_, i) => `$${i + 1}`).join(', ');
@@ -71,6 +86,13 @@ export class Repo<T> extends Reader {
 
   /** UPDATE built from the object's own keys. */
   async set(id: string, dto: Record<string, unknown>): Promise<T | null> {
+    if (this.allowedColumns.size > 0) {
+      for (const key of Object.keys(dto)) {
+        if (!this.allowedColumns.has(key)) {
+          throw new Error(`Unknown column: ${key} for table ${this.table}`);
+        }
+      }
+    }
     const keys = Object.keys(dto);
     if (!keys.length) return this.byId(id);
     const assignments = keys.map((k, i) => `"${k}" = $${i + 2}`).join(', ');
@@ -85,25 +107,63 @@ export class Repo<T> extends Reader {
   }
 }
 
+function buildSslConfig(config: ConfigService): false | { rejectUnauthorized: boolean; ca?: string } {
+  const sslMode = config.get<string>('DATABASE_SSL') ?? 'false';
+  if (sslMode !== 'true') {
+    return false;
+  }
+
+  const insecure = config.get<string>('DATABASE_SSL_INSECURE') === 'true';
+  const isProduction = config.get<string>('NODE_ENV') === 'production';
+
+  if (insecure && isProduction) {
+    throw new Error('DATABASE_SSL_INSECURE=true is not allowed in production');
+  }
+
+  const ca = config.get<string>('DATABASE_SSL_CA');
+  return {
+    rejectUnauthorized: !insecure,
+    ca: ca || undefined,
+  };
+}
+
 @Injectable()
 export class Db extends Reader implements Queryable, OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(Db.name);
-  /** ponytail: fixed pool of 10. Raise max if p99 latency tracks pool wait. */
-  private readonly pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    max: 10,
-    ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
-  });
+  private readonly pool: Pool;
 
-  constructor() {
+  constructor(private readonly config: ConfigService) {
     super();
+
+    const max = config.get<number>('DB_POOL_MAX') ?? 10;
+    const connectionTimeoutMillis = 5000;
+    const idleTimeoutMillis = 30000;
+    const statementTimeout = 10000;
+
+    this.pool = new Pool({
+      connectionString: config.get<string>('DATABASE_URL'),
+      max,
+      ssl: buildSslConfig(config),
+      connectionTimeoutMillis,
+      idleTimeoutMillis,
+      // statement_timeout is set per-query via SET statement_timeout = ...
+      // We'll set it on each connection in onModuleInit
+    });
+
     this.pool.on('error', (err) => {
       this.logger.error('Unexpected pool error', err);
     });
   }
 
   onModuleInit() {
-    // Pool is ready; connection errors are handled by the 'error' event above
+    // Set statement_timeout on each connection
+    this.pool.on('connect', async (client: PoolClient) => {
+      try {
+        await client.query('SET statement_timeout = 10000');
+      } catch (err) {
+        this.logger.warn('Failed to set statement_timeout', err);
+      }
+    });
   }
 
   query(sql: string, params: unknown[] = []): Promise<QueryResultLike> {
@@ -111,15 +171,24 @@ export class Db extends Reader implements Queryable, OnModuleInit, OnModuleDestr
   }
 
   /** A table gateway, bound to a transaction connection when one is supplied. */
-  repo<T>(table: string, conn: Queryable = this): Repo<T> {
-    return new Repo<T>(conn, table);
+  repo<T>(table: string, conn: Queryable = this, allowedColumns?: string[]): Repo<T> {
+    return new Repo<T>(conn, table, allowedColumns);
   }
 
   /** Runs fn in a transaction, rolling back on any throw. */
-  async tx<R>(fn: (conn: Queryable) => Promise<R>): Promise<R> {
+  async tx<R>(
+    fn: (conn: Queryable) => Promise<R>,
+    options?: { isolation?: 'read_committed' | 'repeatable_read' | 'serializable'; lockTimeout?: number }
+  ): Promise<R> {
     const client: PoolClient = await this.pool.connect();
     let originalErr: unknown;
     try {
+      if (options?.isolation) {
+        await client.query(`SET TRANSACTION ISOLATION LEVEL ${options.isolation.toUpperCase().replace('_', ' ')}`);
+      }
+      if (options?.lockTimeout) {
+        await client.query(`SET lock_timeout = ${options.lockTimeout}`);
+      }
       await client.query('BEGIN');
       const out = await fn(client);
       await client.query('COMMIT');
@@ -130,10 +199,13 @@ export class Db extends Reader implements Queryable, OnModuleInit, OnModuleDestr
         await client.query('ROLLBACK');
       } catch (rbErr) {
         this.logger.error('ROLLBACK failed', rbErr);
+        // On rollback failure, release with true to destroy the client
+        client.release(true);
         // Attach rollback error as cause to original error
         if (originalErr instanceof Error && rbErr instanceof Error) {
           (originalErr as Error & { cause?: Error }).cause = rbErr;
         }
+        throw originalErr;
       }
       throw originalErr;
     } finally {

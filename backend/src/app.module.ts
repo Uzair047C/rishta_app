@@ -27,10 +27,14 @@ import { throttlerKeyGenerator } from './auth/throttler-options';
 import { PhotosModule } from './photos/photos.module';
 import { PgBossModule } from './pg-boss/pg-boss.module';
 import { AccountController } from './account/account.controller';
+import { validateConfig } from './config/validation';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validate: validateConfig,
+    }),
     ScheduleModule.forRoot(),
     // Spec 2.1 — global baseline; auth, like and report routes tighten it locally
     // with @Throttle.
