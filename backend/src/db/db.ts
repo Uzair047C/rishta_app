@@ -12,6 +12,13 @@ export interface Queryable {
   query(sql: string, params?: unknown[]): Promise<QueryResultLike>;
 }
 
+/** Extended Queryable with reader methods (available on Db, but not on raw PoolClient) */
+export interface ExtendedQueryable extends Queryable {
+  one<T>(sql: string, params?: unknown[]): Promise<T | null>;
+  oneOrNone<T>(sql: string, params?: unknown[]): Promise<T | null>;
+  all<T>(sql: string, params?: unknown[]): Promise<T[]>;
+}
+
 /**
  * The read shapes every caller needs. Defined once here and inherited by both
  * Db and Repo, so the SQL-running code is not duplicated across them.
@@ -177,11 +184,20 @@ export class Db extends Reader implements Queryable, OnModuleInit, OnModuleDestr
 
   /** Runs fn in a transaction, rolling back on any throw. */
   async tx<R>(
-    fn: (conn: Queryable) => Promise<R>,
+    fn: (conn: ExtendedQueryable) => Promise<R>,
     options?: { isolation?: 'read_committed' | 'repeatable_read' | 'serializable'; lockTimeout?: number }
   ): Promise<R> {
     const client: PoolClient = await this.pool.connect();
     let originalErr: unknown;
+
+    // Wrap client with Reader methods
+    const txConn: ExtendedQueryable = {
+      query: (sql, params) => client.query(sql, params),
+      one: <T,>(sql: string, params?: unknown[]) => client.query(sql, params).then(r => (r.rows[0] ?? null) as T | null),
+      oneOrNone: <T,>(sql: string, params?: unknown[]) => client.query(sql, params).then(r => (r.rows[0] ?? null) as T | null),
+      all: <T,>(sql: string, params?: unknown[]) => client.query(sql, params).then(r => r.rows as T[]),
+    };
+
     try {
       if (options?.isolation) {
         await client.query(`SET TRANSACTION ISOLATION LEVEL ${options.isolation.toUpperCase().replace('_', ' ')}`);
@@ -190,7 +206,7 @@ export class Db extends Reader implements Queryable, OnModuleInit, OnModuleDestr
         await client.query(`SET lock_timeout = ${options.lockTimeout}`);
       }
       await client.query('BEGIN');
-      const out = await fn(client);
+      const out = await fn(txConn);
       await client.query('COMMIT');
       return out;
     } catch (err) {

@@ -39,13 +39,14 @@ describe('AuthController', () => {
       logout: jest.fn(),
       validateUser: jest.fn(),
       getStreamToken: jest.fn(),
+      getProfileSummary: jest.fn(),
     };
 
     const mockReflector = {
       getAllAndOverride: jest.fn(),
     };
     const mockJwtService = { verify: jest.fn() };
-    const mockConfigService = { get: jest.fn().mockReturnValue('test-secret') };
+    const mockConfigService = { get: jest.fn().mockReturnValue('test-secret-that-is-at-least-32-chars-long') };
     const mockDb = { oneOrNone: jest.fn().mockResolvedValue({ id: 'test-user-id', status: 'active', is_admin: false }) };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -130,12 +131,8 @@ describe('AuthController', () => {
   });
 
   describe('getProfile', () => {
-    it('should return user profile data', async () => {
-      authService.validateUser.mockResolvedValue(mockUser);
-
-      const result = await controller.getProfile('test-user-id');
-
-      expect(result).toEqual({
+    it('should return user profile data with onboarding and subscription info', async () => {
+      const expectedProfile = {
         userId: mockUser.id,
         email: mockUser.email,
         emailVerified: mockUser.email_verified,
@@ -143,11 +140,20 @@ describe('AuthController', () => {
         firebaseUid: mockUser.firebase_uid,
         status: mockUser.status,
         createdAt: mockUser.created_at,
-      });
+        onboardingComplete: true,
+        verificationStatus: 'verified',
+        subscriptionPlan: 'premium',
+      };
+      authService.getProfileSummary.mockResolvedValue(expectedProfile);
+
+      const result = await controller.getProfile('test-user-id');
+
+      expect(result).toEqual(expectedProfile);
+      expect(authService.getProfileSummary).toHaveBeenCalledWith('test-user-id');
     });
 
     it('should return null userId when user not found', async () => {
-      authService.validateUser.mockResolvedValue(null);
+      authService.getProfileSummary.mockRejectedValue(new Error('User not found'));
 
       const result = await controller.getProfile('non-existent-id');
 
@@ -156,12 +162,13 @@ describe('AuthController', () => {
   });
 
   describe('getStreamToken', () => {
-    it('should return Stream token', async () => {
-      authService.getStreamToken.mockResolvedValue({ token: 'stream-token' });
+    it('should return Stream token with expiresAt', async () => {
+      authService.getStreamToken.mockResolvedValue({ token: 'stream-token', expiresAt: Date.now() + 3600000 });
 
       const result = await controller.getStreamToken('test-user-id');
 
-      expect(result).toEqual({ token: 'stream-token' });
+      expect(result).toHaveProperty('token', 'stream-token');
+      expect(result).toHaveProperty('expiresAt');
       expect(authService.getStreamToken).toHaveBeenCalledWith('test-user-id');
     });
 

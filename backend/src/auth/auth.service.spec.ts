@@ -1,10 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException, ConflictException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { Db } from '../db/db';
+import { Db, ExtendedQueryable } from '../db/db';
 import { UserRow } from '../db/types';
 
 // Mock firebase-admin modules
@@ -74,6 +74,8 @@ describe('AuthService', () => {
           FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nTEST\n-----END PRIVATE KEY-----\n',
           STREAM_API_KEY: 'stream-key',
           STREAM_API_SECRET: 'stream-secret',
+          JWT_ISSUER: 'rishta-api',
+          JWT_AUDIENCE: 'rishta-app',
         };
         return values[key];
       }),
@@ -129,7 +131,12 @@ describe('AuthService', () => {
       expect(result).toHaveProperty('user');
       expect(result).toHaveProperty('profileComplete');
       expect(result.profileComplete).toBe(false);
-      expect(usersService.findOrCreateByFirebaseUid).toHaveBeenCalled();
+      expect(usersService.findOrCreateByFirebaseUid).toHaveBeenCalledWith(
+        'firebase-uid-123',
+        'test@example.com',
+        'Test User',
+        true
+      );
     });
 
     it('should return profileComplete: true when user has completed onboarding', async () => {
@@ -161,29 +168,76 @@ describe('AuthService', () => {
 
   describe('refreshAccessToken', () => {
     it('should throw UnauthorizedException for invalid refresh token', async () => {
-      db.all.mockResolvedValue([]);
+      const mockTxDb: ExtendedQueryable = {
+        query: jest.fn(),
+        oneOrNone: jest.fn().mockResolvedValue(null),
+        one: jest.fn(),
+        all: jest.fn(),
+      };
+      db.tx.mockImplementation(async (fn) => fn(mockTxDb));
 
       await expect(service.refreshAccessToken('invalid-token')).rejects.toThrow(UnauthorizedException);
     });
 
-    it('should return new accessToken and refreshToken for valid refresh token', async () => {
-      const bcrypt = await import('bcrypt');
-      const validRefreshToken = 'valid-refresh-token';
-      const tokenHash = await bcrypt.hash(validRefreshToken, 10);
-
-      db.all.mockResolvedValue([
-        {
+    it('should throw UnauthorizedException for revoked token (reuse detection)', async () => {
+      const mockTxDb: ExtendedQueryable = {
+        query: jest.fn(),
+        oneOrNone: jest.fn().mockResolvedValue({
           id: 'token-id',
           user_id: mockUser.id,
-          token_hash: tokenHash,
+          token_hash: 'hash',
+          expires_at: new Date(Date.now() + 86400000),
+          revoked_at: new Date(), // Already revoked
+          family_id: 'family-123',
+          replaced_by: 'new-token-id',
+        }),
+        one: jest.fn(),
+        all: jest.fn(),
+      };
+      db.tx.mockImplementation(async (fn) => fn(mockTxDb));
+
+      await expect(service.refreshAccessToken('revoked-token')).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should throw UnauthorizedException for expired token', async () => {
+      const mockTxDb: ExtendedQueryable = {
+        query: jest.fn(),
+        oneOrNone: jest.fn().mockResolvedValue({
+          id: 'token-id',
+          user_id: mockUser.id,
+          token_hash: 'hash',
+          expires_at: new Date(Date.now() - 86400000), // Expired
+          revoked_at: null,
+          family_id: 'family-123',
+          replaced_by: null,
+        }),
+        one: jest.fn(),
+        all: jest.fn(),
+      };
+      db.tx.mockImplementation(async (fn) => fn(mockTxDb));
+
+      await expect(service.refreshAccessToken('expired-token')).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should return new accessToken and refreshToken for valid refresh token', async () => {
+      const mockTxDb: ExtendedQueryable = {
+        query: jest.fn().mockResolvedValue({ rows: [], rowCount: 1 }),
+        oneOrNone: jest.fn().mockResolvedValue({
+          id: 'token-id',
+          user_id: mockUser.id,
+          token_hash: 'hash',
           expires_at: new Date(Date.now() + 86400000),
           revoked_at: null,
-        },
-      ]);
+          family_id: 'family-123',
+          replaced_by: null,
+        }),
+        one: jest.fn().mockResolvedValue({ id: 'new-token-id' }),
+        all: jest.fn(),
+      };
+      db.tx.mockImplementation(async (fn) => fn(mockTxDb));
       jwtService.sign.mockReturnValue('new-access-token');
-      db.query.mockResolvedValue({ rows: [], rowCount: 1 });
 
-      const result = await service.refreshAccessToken(validRefreshToken);
+      const result = await service.refreshAccessToken('valid-refresh-token');
 
       expect(result).toHaveProperty('accessToken');
       expect(result).toHaveProperty('refreshToken');
@@ -204,17 +258,18 @@ describe('AuthService', () => {
       );
     });
 
-    it('should revoke only specific token when refreshToken provided', async () => {
-      const bcrypt = await import('bcrypt');
-      const refreshToken = 'specific-refresh-token';
-      const tokenHash = await bcrypt.hash(refreshToken, 10);
-
-      db.all.mockResolvedValue([{ id: 'token-id', token_hash: tokenHash }]);
+    it('should revoke token family when refreshToken provided', async () => {
+      db.oneOrNone.mockResolvedValue({ id: 'token-id', family_id: 'family-123' });
       db.query.mockResolvedValue({ rows: [], rowCount: 1 });
 
-      const result = await service.logout(mockUser.id, refreshToken);
+      const result = await service.logout(mockUser.id, 'some-refresh-token');
 
       expect(result).toEqual({ success: true });
+      expect(db.oneOrNone).toHaveBeenCalled();
+      expect(db.query).toHaveBeenCalledWith(
+        'UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL',
+        ['family-123']
+      );
     });
   });
 

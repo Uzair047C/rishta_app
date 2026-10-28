@@ -31,19 +31,11 @@ export class AuthController {
 
   @Get('me')
   async getProfile(@CurrentUser() userId: string) {
-    const user = await this.authService.validateUser(userId);
-    if (!user) {
+    try {
+      return await this.authService.getProfileSummary(userId);
+    } catch {
       return { userId: null };
     }
-    return {
-      userId: user.id,
-      email: user.email,
-      emailVerified: user.email_verified,
-      authProvider: user.auth_provider,
-      firebaseUid: user.firebase_uid,
-      status: user.status,
-      createdAt: user.created_at,
-    };
   }
 
   @Get('stream-token')

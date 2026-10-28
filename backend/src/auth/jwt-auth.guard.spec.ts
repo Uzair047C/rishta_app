@@ -29,7 +29,16 @@ describe('JwtAuthGuard', () => {
 
   beforeEach(async () => {
     jwtService = { verify: jest.fn() };
-    configService = { get: jest.fn().mockReturnValue('test-secret') };
+    configService = {
+      get: jest.fn((key: string) => {
+        const values: Record<string, unknown> = {
+          JWT_SECRET: 'test-secret-that-is-at-least-32-chars-long',
+          JWT_ISSUER: 'rishta-api',
+          JWT_AUDIENCE: 'rishta-app',
+        };
+        return values[key];
+      }),
+    };
     reflector = { getAllAndOverride: jest.fn() } as unknown as jest.Mocked<Reflector>;
     db = { oneOrNone: jest.fn().mockResolvedValue({ id: 'test-user-id', status: 'active' }) };
 
@@ -74,12 +83,16 @@ describe('JwtAuthGuard', () => {
     await expect(guard.canActivate(ctx as any)).rejects.toThrow(UnauthorizedException);
   });
 
-  it('should throw UnauthorizedException when JWT_SECRET not configured', async () => {
-    configService.get.mockReturnValue(undefined);
-    reflector.getAllAndOverride.mockReturnValue(false);
-    const ctx = mockContext(mockRequest({ authorization: 'Bearer token' }));
-
-    await expect(guard.canActivate(ctx as any)).rejects.toThrow(UnauthorizedException);
+  it('should throw error when JWT_SECRET not configured at construction', async () => {
+    // The guard constructor validates JWT_SECRET and throws if not configured
+    expect(() => {
+      new JwtAuthGuard(
+        { verify: jest.fn() } as any,
+        { get: jest.fn().mockReturnValue(undefined) } as any,
+        reflector,
+        db as any
+      );
+    }).toThrow('JWT_SECRET is not configured');
   });
 
   it('should attach user to request and return true for valid token', async () => {
@@ -93,7 +106,11 @@ describe('JwtAuthGuard', () => {
 
     expect(result).toBe(true);
     expect(request.user).toEqual({ id: 'test-user-id', status: 'active', is_admin: false });
-    expect(jwtService.verify).toHaveBeenCalledWith('valid-token', { secret: 'test-secret' });
+    expect(jwtService.verify).toHaveBeenCalledWith('valid-token', {
+      secret: 'test-secret-that-is-at-least-32-chars-long',
+      issuer: 'rishta-api',
+      audience: 'rishta-app',
+    });
     expect(db.oneOrNone).toHaveBeenCalledWith('SELECT * FROM users WHERE id = $1', ['test-user-id']);
   });
 
