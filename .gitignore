@@ -92,11 +92,12 @@ backend/node_modules/
 .idea/
 .antigravity/
 .vscode/
+.claude/
 
-# Logs & debug files
+# Project-specific
+memory/
 logs_problem.logs
 debug_*.py
-app/log.txt
 app/get-pip.py
 query
 MEMORY_UPDATE.md
@@ -111,3 +112,19 @@ backend/dist/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Secrets and local config
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Coverage
+coverage/
+*.lcov
+
+# Test artifacts
+*.test.ts
+*.spec.ts
+!*.e2e-spec.ts
