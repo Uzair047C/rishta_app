@@ -2,7 +2,83 @@ import 'reflect-metadata';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Request, Response, NextFunction } from 'express';
+import { v4 as uuidv4 } from 'uuid';
 import { AppModule } from './app.module';
+
+// Structured logging middleware with request ID and user ID
+function structuredLoggingMiddleware() {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const requestId = (req.headers['x-request-id'] as string) || uuidv4();
+    const start = Date.now();
+    const logger = new Logger('Request');
+
+    // Attach requestId to request for downstream use
+    (req as any).requestId = requestId;
+
+    // Redact sensitive headers and query params
+    const sensitiveKeys = ['authorization', 'cookie', 'x-api-key', 'x-auth-token'];
+    const safeHeaders: Record<string, string> = {};
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (!sensitiveKeys.includes(key.toLowerCase()) && value !== undefined) {
+        safeHeaders[key] = Array.isArray(value) ? value.join(',') : value;
+      }
+    }
+
+    // Redact sensitive query params
+    const sensitiveQueryKeys = ['token', 'refreshToken', 'accessToken', 'idToken', 'password', 'code'];
+    const safeQuery: Record<string, string> = {};
+    for (const [key, value] of Object.entries(req.query)) {
+      if (!sensitiveQueryKeys.includes(key.toLowerCase())) {
+        safeQuery[key] = Array.isArray(value) ? value.join(',') : String(value);
+      }
+    }
+
+    // Redact sensitive body fields
+    let safeBody = req.body;
+    if (req.body && typeof req.body === 'object') {
+      safeBody = { ...req.body };
+      const sensitiveBodyKeys = ['token', 'refreshToken', 'accessToken', 'idToken', 'password', 'email', 'phone', 'lat', 'lng', 'location'];
+      for (const key of sensitiveBodyKeys) {
+        if (safeBody[key] !== undefined) {
+          safeBody[key] = '[REDACTED]';
+        }
+      }
+    }
+
+    // Log request start
+    logger.log(JSON.stringify({
+      type: 'request_start',
+      requestId,
+      method: req.method,
+      url: req.url,
+      path: req.path,
+      query: safeQuery,
+      headers: safeHeaders,
+      body: safeBody,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'] ?? '',
+    }));
+
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      const userId = (req as any).user?.id || (req as any).userId || 'anonymous';
+
+      logger.log(JSON.stringify({
+        type: 'request_end',
+        requestId,
+        method: req.method,
+        url: req.url,
+        path: req.path,
+        statusCode: res.statusCode,
+        durationMs: duration,
+        userId,
+        ip: req.ip,
+      }));
+    });
+
+    next();
+  };
+}
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
@@ -40,19 +116,8 @@ async function bootstrap(): Promise<void> {
     credentials: true,
   });
 
-  // Simple request logging middleware (redact auth headers)
-  app.use((req: Request, res: Response, next: NextFunction) => {
-    const logger = new Logger('Request');
-    const authHeader = req.headers['authorization'];
-    const safeUrl = authHeader ? req.url.replace(/\?.*$/, '') : req.url; // don't log query params on auth routes
-    logger.log(`${req.method} ${safeUrl}`);
-    const start = Date.now();
-    res.on('finish', () => {
-      const duration = Date.now() - start;
-      logger.log(`${req.method} ${safeUrl} ${res.statusCode} - ${duration}ms`);
-    });
-    next();
-  });
+  // Structured request logging middleware
+  app.use(structuredLoggingMiddleware());
 
   app.useGlobalPipes(
     new ValidationPipe({

@@ -26,6 +26,7 @@ import { PostgresExceptionFilter } from './common/postgres-exception.filter';
 import { throttlerKeyGenerator } from './auth/throttler-options';
 import { PhotosModule } from './photos/photos.module';
 import { PgBossModule } from './pg-boss/pg-boss.module';
+import { AccountController } from './account/account.controller';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { PgBossModule } from './pg-boss/pg-boss.module';
     SubscriptionController,
     NotificationsController,
     AdminController,
+    AccountController,
   ],
   providers: [
     Db,

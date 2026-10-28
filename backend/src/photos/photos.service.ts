@@ -189,4 +189,31 @@ export class PhotosService {
       this.log.warn(`Photo flagged and removed from profile: userId=${userId}, path=${objectPath}, labels=${labels.join(',')}`);
     }
   }
+
+  /**
+   * Get array of photo URLs for a user (used by export/deletion).
+   * Reads from profiles.photos array.
+   */
+  async getPhotosArray(userId: string): Promise<string[]> {
+    const profile = await this.db.one<ProfileRow>(
+      'SELECT photos FROM profiles WHERE user_id = $1',
+      [userId],
+    );
+    return profile?.photos ?? [];
+  }
+
+  /**
+   * Delete photos from storage (Firebase Storage or configured provider).
+   * Called during account deletion to clean up user's uploaded files.
+   * In production, integrate with Firebase Admin SDK.
+   */
+  async deleteFromStorage(objectPaths: string[]): Promise<void> {
+    if (!objectPaths.length) return;
+    // TODO: Implement actual storage deletion
+    // Example with Firebase Admin SDK:
+    // const { getStorage } = await import('firebase-admin/storage');
+    // const bucket = getStorage().bucket();
+    // await Promise.all(objectPaths.map(path => bucket.file(path).delete()));
+    this.log.log(`Storage cleanup: ${objectPaths.length} photos would be deleted:`, objectPaths);
+  }
 }

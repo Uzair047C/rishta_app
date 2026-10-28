@@ -32,7 +32,8 @@
     "pg-boss": "^12.38.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "stream-chat": "^9.54.0"
+    "stream-chat": "^9.54.0",
+    "uuid": "^11.0.3"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.5",
@@ -41,6 +42,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^22.13.10",
     "@types/pg": "^8.11.11",
+    "@types/uuid": "^10.0.0",
     "jest": "^30.5.2",
     "node-pg-migrate": "^9.0.0",
     "ts-jest": "^29.4.15",

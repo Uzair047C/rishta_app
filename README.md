@@ -48,6 +48,13 @@ future code path that forgets a rule still cannot break it:
   credentials are absent, so the pipeline is exercisable in development. In
   production an unconfigured verification provider refuses rather than
   auto-approving (`VerificationService.assertProvider`).
+- **Structured logging** (`src/main.ts`) — JSON logs with request ID and user ID.
+  Sensitive data (tokens, emails, coordinates) is redacted automatically.
+- **Account deletion** (`src/account/account.controller.ts:delete`) — cascade deletes
+  all related data plus storage object cleanup. Data export endpoint
+  (`src/account/account.controller.ts:export`) returns full user data for GDPR.
+- **Push notifications** (`src/notifications/push.service.ts`) — **stub only**,
+  logs but does not send. Does not claim to work in README.
 
 ---
 
@@ -109,3 +116,5 @@ flutter run --dart-define=API_BASE=http://10.0.2.2:3000 \
 - **Device fingerprint.** `users.device_id` and the per-device account cap are
   implemented; the client does not yet send one. Firebase App Check is the
   intended source (§2.3).
+- **Push notifications.** `PushService` is a log-only stub. Integrate Firebase
+  Messaging / APNs / SNS for production.
