@@ -16,7 +16,12 @@ class FeedQuery implements FeedFilters {
   @IsOptional() @Type(() => Number) @IsInt() @Min(18) @Max(120) maxAge?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(20000) radiusKm?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) limit?: number;
-  @IsOptional() @ValidateNested() @Type(() => CursorDto) cursor?: { shared_interests: number; distance_km: number | null; user_id: string };
+  @IsOptional() @IsString() cursor?: string; // Opaque base64-encoded cursor
+  @IsOptional() @IsString() religiousPracticeLevel?: string;
+  @IsOptional() @IsString() sect?: string;
+  @IsOptional() @IsString() maritalStatus?: string;
+  @IsOptional() @IsString() education?: string;
+  @IsOptional() @IsString() city?: string;
 }
 
 class TargetDto {
