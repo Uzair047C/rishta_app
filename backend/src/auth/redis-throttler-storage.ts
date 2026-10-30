@@ -3,7 +3,13 @@ import { createClient, RedisClientType } from 'redis';
 import { RedisThrottlerStorage } from '@nestjs-redis/throttler-storage';
 
 /**
- * Factory for Redis throttler storage.
+ * Provider token for Redis throttler storage.
+ * Use with ThrottlerModule.forRootAsync inject: [REDIS_THROTTLER_STORAGE]
+ */
+export const REDIS_THROTTLER_STORAGE = 'REDIS_THROTTLER_STORAGE';
+
+/**
+ * Factory for Redis throttler storage provider.
  * Returns a RedisThrottlerStorage instance when REDIS_URL is configured,
  * otherwise returns null to fall back to in-memory storage.
  */

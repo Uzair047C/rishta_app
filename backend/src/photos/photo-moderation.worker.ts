@@ -25,8 +25,10 @@ export class PhotoModerationWorker implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     await this.pgBoss.subscribe<ModeratePhotoJob>(
       'moderate-photo',
-      async (job) => {
-        await this.handleModeration(job.data);
+      async (jobs: { id: string; name: string; data: ModeratePhotoJob }[]) => {
+        for (const job of jobs) {
+          await this.handleModeration(job.data);
+        }
       },
       { teamSize: 2, teamConcurrency: 1 },
     );

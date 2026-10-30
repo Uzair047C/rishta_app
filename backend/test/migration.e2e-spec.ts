@@ -1,6 +1,9 @@
 import { Pool } from 'pg';
 import { query, truncateAll } from './e2e-setup';
 
+// node-pg-migrate is CommonJS, use require
+const migrate = require('node-pg-migrate').default;
+
 describe('Database migrations (e2e)', () => {
   let testPool: Pool;
 
@@ -27,7 +30,6 @@ describe('Database migrations (e2e)', () => {
 
   it('should apply all migrations from empty database', async () => {
     // Run migrations using node-pg-migrate programmatically
-    const { default: migrate } = await import('node-pg-migrate');
     await migrate({
       direction: 'up',
       databaseUrl: process.env.DATABASE_URL_TEST ||

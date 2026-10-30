@@ -1,26 +1,18 @@
 import { testPool, truncateAll, query } from './e2e-setup';
 import { Db } from '../src/db/db';
-import { ConfigService } from '@nestjs/config';
-
-// Mock ConfigService for Db
-const mockConfig = {
-  get: (key: string) => {
-    const config: Record<string, string> = {
-      DATABASE_URL: process.env.DATABASE_URL_TEST || process.env.DATABASE_URL?.replace(/\/([^/]+)$/, '/$1_test') || '',
-      DATABASE_SSL: 'false',
-      DB_POOL_MAX: '5',
-      NODE_ENV: 'test',
-    };
-    return config[key];
-  },
-} as unknown as ConfigService;
+import { Pool } from 'pg';
 
 describe('Repo column allowlist (e2e)', () => {
   let db: Db;
 
   beforeAll(async () => {
     await truncateAll();
-    db = new Db(mockConfig);
+    // Create a test pool directly
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL_TEST || process.env.DATABASE_URL?.replace(/\/([^/]+)$/, '/$1_test') || '',
+      max: 5,
+    });
+    db = new Db(pool);
   });
 
   afterAll(async () => {

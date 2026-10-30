@@ -17,6 +17,7 @@ export interface ExtendedQueryable extends Queryable {
   one<T>(sql: string, params?: unknown[]): Promise<T | null>;
   oneOrNone<T>(sql: string, params?: unknown[]): Promise<T | null>;
   all<T>(sql: string, params?: unknown[]): Promise<T[]>;
+  count(sql: string, params?: unknown[]): Promise<number>;
 }
 
 /**
@@ -114,63 +115,18 @@ export class Repo<T> extends Reader {
   }
 }
 
-function buildSslConfig(config: ConfigService): false | { rejectUnauthorized: boolean; ca?: string } {
-  const sslMode = config.get<string>('DATABASE_SSL') ?? 'false';
-  if (sslMode !== 'true') {
-    return false;
-  }
-
-  const insecure = config.get<string>('DATABASE_SSL_INSECURE') === 'true';
-  const isProduction = config.get<string>('NODE_ENV') === 'production';
-
-  if (insecure && isProduction) {
-    throw new Error('DATABASE_SSL_INSECURE=true is not allowed in production');
-  }
-
-  const ca = config.get<string>('DATABASE_SSL_CA');
-  return {
-    rejectUnauthorized: !insecure,
-    ca: ca || undefined,
-  };
-}
-
 @Injectable()
 export class Db extends Reader implements Queryable, OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(Db.name);
   private readonly pool: Pool;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(pool: Pool) {
     super();
-
-    const max = config.get<number>('DB_POOL_MAX') ?? 10;
-    const connectionTimeoutMillis = 5000;
-    const idleTimeoutMillis = 30000;
-    const statementTimeout = 10000;
-
-    this.pool = new Pool({
-      connectionString: config.get<string>('DATABASE_URL'),
-      max,
-      ssl: buildSslConfig(config),
-      connectionTimeoutMillis,
-      idleTimeoutMillis,
-      // statement_timeout is set per-query via SET statement_timeout = ...
-      // We'll set it on each connection in onModuleInit
-    });
-
-    this.pool.on('error', (err) => {
-      this.logger.error('Unexpected pool error', err);
-    });
+    this.pool = pool;
   }
 
-  onModuleInit() {
-    // Set statement_timeout on each connection
-    this.pool.on('connect', async (client: PoolClient) => {
-      try {
-        await client.query('SET statement_timeout = 10000');
-      } catch (err) {
-        this.logger.warn('Failed to set statement_timeout', err);
-      }
-    });
+  getPool(): Pool {
+    return this.pool;
   }
 
   query(sql: string, params: unknown[] = []): Promise<QueryResultLike> {
@@ -196,16 +152,18 @@ export class Db extends Reader implements Queryable, OnModuleInit, OnModuleDestr
       one: <T,>(sql: string, params?: unknown[]) => client.query(sql, params).then(r => (r.rows[0] ?? null) as T | null),
       oneOrNone: <T,>(sql: string, params?: unknown[]) => client.query(sql, params).then(r => (r.rows[0] ?? null) as T | null),
       all: <T,>(sql: string, params?: unknown[]) => client.query(sql, params).then(r => r.rows as T[]),
+      count: (sql: string, params?: unknown[]) => client.query(sql, params).then(r => Number((r.rows[0] as any)?.n ?? 0)),
     };
 
     try {
       if (options?.isolation) {
-        await client.query(`SET TRANSACTION ISOLATION LEVEL ${options.isolation.toUpperCase().replace('_', ' ')}`);
+        await client.query(`BEGIN ISOLATION LEVEL ${options.isolation.toUpperCase().replace('_', ' ')}`);
+      } else {
+        await client.query('BEGIN');
       }
       if (options?.lockTimeout) {
-        await client.query(`SET lock_timeout = ${options.lockTimeout}`);
+        await client.query(`SET LOCAL lock_timeout = ${options.lockTimeout}`);
       }
-      await client.query('BEGIN');
       const out = await fn(txConn);
       await client.query('COMMIT');
       return out;
@@ -223,10 +181,19 @@ export class Db extends Reader implements Queryable, OnModuleInit, OnModuleDestr
         }
         throw originalErr;
       }
+      // Release with error to destroy the client
+      client.release(true);
       throw originalErr;
     } finally {
-      client.release();
+      // If we didn't already release with error, release normally
+      if (!originalErr) {
+        client.release();
+      }
     }
+  }
+
+  onModuleInit() {
+    // Pool is managed by DbModule, nothing to do here
   }
 
   onModuleDestroy() {

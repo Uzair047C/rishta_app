@@ -1,11 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD, APP_FILTER } from '@nestjs/core';
 
-import { Db } from './db/db';
-import { UsersService } from './users/users.service';
+import { DbModule } from './db/db.module';
+import { UsersModule } from './users/users.module';
 import { ProfileController } from './profile/profile.controller';
 import { ProfileService } from './profile/profile.service';
 import { VerificationController } from './verification/verification.controller';
@@ -17,7 +16,7 @@ import { ReportsController } from './reports/reports.controller';
 import { SubscriptionController } from './subscription/subscription.controller';
 import { SubscriptionService } from './subscription/subscription.service';
 import { NotificationsController } from './notifications/notifications.controller';
-import { PushService } from './notifications/push.service';
+import { NotificationsModule } from './notifications/notifications.module';
 import { ModerationService } from './moderation/moderation.service';
 import { AdminController, AdminGuard } from './moderation/admin.controller';
 import { AuthModule } from './auth/auth.module';
@@ -28,7 +27,7 @@ import { PhotosModule } from './photos/photos.module';
 import { PgBossModule } from './pg-boss/pg-boss.module';
 import { AccountController } from './account/account.controller';
 import { validateConfig } from './config/validation';
-import { redisStorageFactory } from './auth/redis-throttler-storage';
+import { REDIS_THROTTLER_STORAGE } from './auth/redis-throttler-storage';
 
 @Module({
   imports: [
@@ -36,7 +35,6 @@ import { redisStorageFactory } from './auth/redis-throttler-storage';
       isGlobal: true,
       validate: validateConfig,
     }),
-    ScheduleModule.forRoot(),
     // Spec 2.1 — global baseline; auth, like and report routes tighten it locally
     // with @Throttle.
     ThrottlerModule.forRootAsync({
@@ -49,8 +47,11 @@ import { redisStorageFactory } from './auth/redis-throttler-storage';
         // Use Redis storage when REDIS_URL is configured
         ...(redisStorage ? { storage: redisStorage } : {}),
       }),
-      inject: [redisStorageFactory],
+      inject: [REDIS_THROTTLER_STORAGE],
     }),
+    DbModule,
+    UsersModule,
+    NotificationsModule,
     AuthModule,
     PgBossModule,
     PhotosModule,
@@ -67,12 +68,9 @@ import { redisStorageFactory } from './auth/redis-throttler-storage';
     AccountController,
   ],
   providers: [
-    Db,
-    UsersService,
     ProfileService,
     VerificationService,
     FeedService,
-    PushService,
     SubscriptionService,
     ModerationService,
     AdminGuard,
