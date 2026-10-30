@@ -1,7 +1,9 @@
-import { Injectable, Logger, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, Logger, UnauthorizedException, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Db } from '../db/db';
 import { SubscriptionRow, SubscriptionStatus } from '../db/types';
+import { PgBossService } from '../pg-boss/pg-boss.service';
+import { PG_BOSS_SERVICE } from '../pg-boss/pg-boss.module';
 import * as crypto from 'crypto';
 
 /** Product id -> plan. RevenueCat sends the product, not our plan name. */
@@ -14,12 +16,13 @@ const PLAN_BY_PRODUCT: Record<string, string> = {
 
 /** Plan -> daily like allowance (injected via ConfigService) */
 @Injectable()
-export class SubscriptionService {
+export class SubscriptionService implements OnModuleInit {
   private readonly log = new Logger(SubscriptionService.name);
 
   constructor(
     private readonly db: Db,
     private readonly config: ConfigService,
+    @Inject(PG_BOSS_SERVICE) private readonly pgBoss: PgBossService,
   ) {}
 
   private getAllowanceByPlan(): Record<string, number> {
@@ -65,19 +68,46 @@ export class SubscriptionService {
    * Spec 2.3 — quota resets on a schedule, never on login.
    * Uses Asia/Karachi timezone as specified.
    * Idempotent per day using quota_reset_at.
+   * Fixed timezone logic: uses date_trunc at PKT then converts back to UTC.
    */
   async nightlyQuotaReset(): Promise<void> {
+    // Expiry: active subscriptions where renews_at < now()
     const lapsed = await this.db.query(
       `UPDATE subscriptions SET status = 'expired'
         WHERE status = 'active' AND renews_at IS NOT NULL AND renews_at < now()`,
     );
+
+    // Quota reset: compare quota_reset_at to start of PKT day in UTC
+    // date_trunc('day', now() AT TIME ZONE 'Asia/Karachi') gives start of PKT day as timestamp without TZ
+    // AT TIME ZONE 'Asia/Karachi' converts it back to timestamptz (UTC)
     const reset = await this.db.query(
       `UPDATE subscriptions
           SET likes_remaining_today = daily_allowance, quota_reset_at = now()
         WHERE status = 'active'
-          AND (quota_reset_at IS NULL OR quota_reset_at < (now() at time zone 'Asia/Karachi')::date)`,
+          AND (quota_reset_at IS NULL
+            OR quota_reset_at < (date_trunc('day', now() AT TIME ZONE 'Asia/Karachi') AT TIME ZONE 'Asia/Karachi'))`,
     );
     this.log.log(`quota reset: ${reset.rowCount ?? 0} active, ${lapsed.rowCount ?? 0} lapsed`);
+  }
+
+  async onModuleInit(): Promise<void> {
+    // Startup catch-up: run quota reset once at startup
+    await this.nightlyQuotaReset();
+
+    // Schedule daily quota reset at midnight PKT via pg-boss
+    await this.pgBoss.schedule(
+      'quota.reset',
+      '0 0 * * *', // Midnight UTC - pg-boss minimum is 1 minute, but cron is daily
+      {},
+      { timezone: 'Asia/Karachi' },
+    );
+
+    // Define the worker
+    await this.pgBoss.subscribe('quota.reset', async () => {
+      await this.nightlyQuotaReset();
+    }, { teamSize: 1, teamConcurrency: 1 });
+
+    this.log.log('Quota reset job scheduled (daily at midnight PKT)');
   }
 
   /**

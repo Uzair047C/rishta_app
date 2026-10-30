@@ -8,6 +8,7 @@ describe('SubscriptionService', () => {
   let service: SubscriptionService;
   let db: any;
   let config: any;
+  let pgBoss: any;
 
   const mockUser = { id: '123e4567-e89b-12d3-a456-426614174000' };
   const mockSub = {
@@ -54,11 +55,17 @@ describe('SubscriptionService', () => {
       }),
     };
 
+    pgBoss = {
+      schedule: jest.fn().mockResolvedValue(undefined),
+      subscribe: jest.fn().mockResolvedValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SubscriptionService,
         { provide: Db, useValue: db },
         { provide: ConfigService, useValue: config },
+        { provide: 'PG_BOSS_SERVICE', useValue: pgBoss },
       ],
     }).compile();
 
@@ -432,16 +439,16 @@ describe('SubscriptionService', () => {
       expect(db.query).toHaveBeenCalledTimes(2);
     });
 
-    it('should be idempotent per day using quota_reset_at', async () => {
+    it('should be idempotent per day using quota_reset_at with correct PKT timezone logic', async () => {
       db.query
         .mockResolvedValueOnce({ rowCount: 0, rows: [] })
         .mockResolvedValueOnce({ rowCount: 0, rows: [] }); // No rows to reset if already reset today
 
       await service.nightlyQuotaReset();
 
-      // Verify the reset query includes the idempotency check
+      // Verify the reset query includes the corrected idempotency check
       const resetCall = db.query.mock.calls[1];
-      expect(resetCall[0]).toContain("quota_reset_at < (now() at time zone 'Asia/Karachi')::date");
+      expect(resetCall[0]).toContain("date_trunc('day', now() AT TIME ZONE 'Asia/Karachi') AT TIME ZONE 'Asia/Karachi'");
     });
   });
 
