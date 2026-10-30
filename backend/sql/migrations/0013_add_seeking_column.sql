@@ -1,8 +1,6 @@
 -- Migration 0013: Add seeking column to profiles
 -- Default: male users seek female, female users seek male, others seek any
 
-BEGIN;
-
 -- Add seeking column to profiles
 DO $$
 BEGIN
@@ -25,5 +23,3 @@ END
 FROM users u
 WHERE p.user_id = u.id
   AND p.seeking = 'any'; -- Only backfill defaults
-
-COMMIT;

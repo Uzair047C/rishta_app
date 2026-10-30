@@ -3,11 +3,7 @@
 -- 1. Adds unmatched_by to matches, CHECK on likes_remaining_today
 -- 2. Adds likes(to_user_id, created_at DESC) index for "who liked me"
 -- 3. Enables PostGIS, adds users.geo geography(Point,4326) with trigger and GiST index
--- 4. Ensures refresh_tokens has correct schema with family_id and indexes
--- 5. Adds webhook_events table
--- 6. Drops messages table (chat is entirely on Stream)
-
-BEGIN;
+-- 4. Adds webhook_events table (if not already exists from 0006)
 
 -- 1. matches: add unmatched_by column
 ALTER TABLE matches
@@ -69,43 +65,7 @@ WHERE lat IS NOT NULL AND lng IS NOT NULL AND geo IS NULL;
 -- GiST index on geo for spatial queries
 CREATE INDEX IF NOT EXISTS users_geo_idx ON users USING GIST (geo);
 
--- 5. Ensure refresh_tokens has correct schema
-DO $$
-BEGIN
-  -- Add family_id column if not exists
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'refresh_tokens' AND column_name = 'family_id'
-  ) THEN
-    ALTER TABLE refresh_tokens ADD COLUMN family_id uuid DEFAULT gen_random_uuid();
-  END IF;
-
-  -- Make token_hash UNIQUE (for O(1) lookup)
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes
-    WHERE tablename = 'refresh_tokens' AND indexname = 'refresh_tokens_token_hash_key'
-  ) THEN
-    CREATE UNIQUE INDEX refresh_tokens_token_hash_key ON refresh_tokens (token_hash);
-  END IF;
-
-  -- Add index on (user_id) WHERE revoked_at IS NULL
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes
-    WHERE tablename = 'refresh_tokens' AND indexname = 'refresh_tokens_user_active_idx'
-  ) THEN
-    CREATE INDEX refresh_tokens_user_active_idx ON refresh_tokens (user_id) WHERE revoked_at IS NULL;
-  END IF;
-
-  -- Add index on family_id
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes
-    WHERE tablename = 'refresh_tokens' AND indexname = 'refresh_tokens_family_idx'
-  ) THEN
-    CREATE INDEX refresh_tokens_family_idx ON refresh_tokens (family_id);
-  END IF;
-END $$;
-
--- 6. webhook_events table (idempotency for webhooks)
+-- 5. webhook_events table (idempotency for webhooks) - created in 0006, ensure it exists
 CREATE TABLE IF NOT EXISTS webhook_events (
   id text PRIMARY KEY,
   received_at timestamptz NOT NULL DEFAULT now()
@@ -114,5 +74,3 @@ CREATE TABLE IF NOT EXISTS webhook_events (
 -- Note: messages table is retained for account export/deletion endpoints
 -- Chat is entirely on Stream; this table is not used for live messaging.
 -- If fully migrating to Stream, update account.controller.ts and then drop.
-
-COMMIT;
