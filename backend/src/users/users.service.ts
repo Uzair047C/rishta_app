@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { Db } from '../db/db';
 import { UserRow } from '../db/types';
 
@@ -10,7 +10,7 @@ export class UsersService {
   async require(userId: string): Promise<UserRow> {
     const user = await this.db.oneOrNone<UserRow>('SELECT * FROM users WHERE id = $1', [userId]);
     if (!user) {
-      throw new Error('User not found');
+      throw new NotFoundException('User not found');
     }
     return user;
   }
@@ -41,15 +41,19 @@ export class UsersService {
    * Primary identifier is firebase_uid.
    * If no match but a user with the same verified email exists and has no firebase_uid, link it.
    * If that email is already linked to a different firebase_uid, return conflict.
+   * emailVerified: only link by email when both Firebase token and existing user have verified email.
    */
   async findOrCreateByFirebaseUid(
     firebaseUid: string,
     email: string,
-    displayName?: string
+    displayName?: string,
+    emailVerified: boolean = false
   ): Promise<UserRow> {
     if (!email) {
-      throw new Error('Email not provided from Firebase');
+      throw new ConflictException('Email not provided from Firebase');
     }
+
+    const lowerEmail = email.toLowerCase();
 
     // First try to find by Firebase UID
     let user = await this.db.oneOrNone<UserRow>(
@@ -58,41 +62,52 @@ export class UsersService {
     );
 
     if (user) {
-      // Update email_verified if Firebase says it's verified
-      await this.db.query(
-        'UPDATE users SET email_verified = true WHERE id = $1',
-        [user.id]
-      );
-      return user;
-    }
-
-    // If no Firebase UID match, look for user with this email (lowercase for case-insensitive)
-    const lowerEmail = email.toLowerCase();
-    user = await this.db.oneOrNone<UserRow>(
-      'SELECT * FROM users WHERE lower(email) = $1 AND email_verified = true',
-      [lowerEmail]
-    );
-
-    if (user) {
-      // Check if this user already has a firebase_uid
-      if (user.firebase_uid && user.firebase_uid !== firebaseUid) {
-        throw new Error('Account already exists with different Firebase UID');
+      // Update email_verified if Firebase says it's verified and user isn't already
+      if (emailVerified && !user.email_verified) {
+        await this.db.query(
+          'UPDATE users SET email_verified = true WHERE id = $1',
+          [user.id]
+        );
+        user.email_verified = true;
       }
-      // Link this Firebase account to the user
-      await this.db.query(
-        `UPDATE users SET
-           firebase_uid = $2,
-           email_verified = true
-           WHERE id = $1`,
-        [user.id, firebaseUid]
-      );
       return user;
     }
 
-    // No existing user found, create new one
+    // If no Firebase UID match, look for user with this email ONLY when both are verified
+    if (emailVerified) {
+      user = await this.db.oneOrNone<UserRow>(
+        'SELECT * FROM users WHERE lower(email) = $1 AND email_verified = true',
+        [lowerEmail]
+      );
+
+      if (user) {
+        // Check if this user already has a different firebase_uid
+        if (user.firebase_uid && user.firebase_uid !== firebaseUid) {
+          throw new ConflictException('account_exists_with_different_provider');
+        }
+        // Link this Firebase account to the user
+        await this.db.query(
+          `UPDATE users SET
+             firebase_uid = $2,
+             email_verified = true
+             WHERE id = $1`,
+          [user.id, firebaseUid]
+        );
+        user.firebase_uid = firebaseUid;
+        user.email_verified = true;
+        return user;
+      }
+    }
+
+    // No existing user found, create new one atomically
+    // Use ON CONFLICT to handle race conditions
     user = await this.db.one<UserRow>(
       `INSERT INTO users (email, phone, phone_verified, gender, dob, location, lat, lng, device_id, firebase_uid, email_verified)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (firebase_uid) DO UPDATE SET
+         email = EXCLUDED.email,
+         email_verified = CASE WHEN EXCLUDED.email_verified THEN true ELSE users.email_verified END
+       RETURNING *`,
       [
         email,
         null,
@@ -104,7 +119,7 @@ export class UsersService {
         null,
         null,
         firebaseUid,
-        true,
+        emailVerified,
       ]
     );
     return user!;
@@ -132,8 +147,8 @@ export class UsersService {
   async findOneOrFail(userId: string): Promise<UserRow> {
     const user = await this.db.oneOrNone<UserRow>('SELECT * FROM users WHERE id = $1', [userId]);
     if (!user) {
-      throw new Error('User not found');
+      throw new NotFoundException('User not found');
     }
-    return user!;
+    return user;
   }
 }

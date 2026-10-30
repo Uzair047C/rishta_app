@@ -24,7 +24,8 @@ export class ReportsController {
    * Spec 2.5 — reports feed the same human review queue as automated flags.
    * Reported but not blocked: the two actions stay independent (spec 1.2).
    */
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  // report 10/hour/user
+  @Throttle({ default: { limit: 10, ttl: 3_600_000 } })
   @Post()
   async create(@CurrentUser() userId: string, @Body() dto: ReportDto) {
     const user = await this.users.require(userId);

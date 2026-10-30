@@ -3,7 +3,7 @@
 export type Gender = 'male' | 'female' | 'other';
 export type MaritalStatus = 'never_married' | 'divorced' | 'separated' | 'annulled' | 'widowed' | 'married';
 export type VerificationStatus = 'pending' | 'verified' | 'failed';
-export type SubscriptionStatus = 'active' | 'expired' | 'cancelled' | 'inactive';
+export type SubscriptionStatus = 'active' | 'expired' | 'cancelled' | 'paused' | 'inactive';
 export type FlagStatus = 'open' | 'reviewing' | 'actioned' | 'dismissed';
 export type Sect = 'sunni' | 'shia' | 'other' | 'prefer_not_to_say';
 export type ReligiousPracticeLevel = 'strictly' | 'actively' | 'occasionally' | 'not_practising';

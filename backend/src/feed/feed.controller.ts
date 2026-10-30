@@ -16,7 +16,12 @@ class FeedQuery implements FeedFilters {
   @IsOptional() @Type(() => Number) @IsInt() @Min(18) @Max(120) maxAge?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(20000) radiusKm?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(50) limit?: number;
-  @IsOptional() @ValidateNested() @Type(() => CursorDto) cursor?: { shared_interests: number; distance_km: number | null; user_id: string };
+  @IsOptional() @IsString() cursor?: string; // Opaque base64-encoded cursor
+  @IsOptional() @IsString() religiousPracticeLevel?: string;
+  @IsOptional() @IsString() sect?: string;
+  @IsOptional() @IsString() maritalStatus?: string;
+  @IsOptional() @IsString() education?: string;
+  @IsOptional() @IsString() city?: string;
 }
 
 class TargetDto {
@@ -40,7 +45,8 @@ export class FeedController {
   }
 
   /** Stricter limit than the global default — this is a write with a quota. */
-  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  // like 60/min/user
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Post('like')
   async like(@CurrentUser() userId: string, @Body() dto: TargetDto) {
     return this.feed.like(userId, dto.userId);

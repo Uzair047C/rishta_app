@@ -1,6 +1,6 @@
 # Rishta
 
-Flutter + NestJS/PostgreSQL matchmaking app, built from [prompt.md](prompt.md).
+Flutter + NestJS/PostgreSQL matchmaking app.
 
 ```
 backend/   NestJS API, PostgreSQL schema
@@ -14,47 +14,69 @@ app/       Flutter client (Riverpod)
 ```bash
 cd backend
 npm install
-cp .env.example .env          # fill in DATABASE_URL at minimum
-npm run db:init               # applies sql/schema.sql then sql/seed.sql
+cp .env.example .env          # fill in all required vars (see below)
+npm run db:migrate            # applies migrations from sql/migrations/
 npm run dev                   # nest start --watch on :3000
 npm run typecheck             # tsc --noEmit
+npm test                      # jest (requires Postgres)
 ```
 
-`GET /auth/me` returns the current user's profile. `GET /auth/stream-token` issues a Stream Chat token.
+### Required environment variables
 
-### Where the critical rules live
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DATABASE_URL` | PostgreSQL connection string | ✅ |
+| `DATABASE_SSL` | `true`/`false` — enable TLS | |
+| `DATABASE_SSL_CA` | PEM-encoded CA for custom CAs | |
+| `DATABASE_SSL_INSECURE` | `true`/`false` — allow unverified TLS (dev only) | |
+| `DB_POOL_MAX` | Connection pool max size (default 10) | |
+| `JWT_SECRET` | HS256 secret, min 32 chars | ✅ |
+| `JWT_ACCESS_TTL_MINUTES` | Access token TTL (default 15) | |
+| `JWT_REFRESH_TTL_DAYS` | Refresh token TTL (default 30) | |
+| `JWT_ISSUER` | JWT `iss` claim (default `rishta-api`) | |
+| `JWT_AUDIENCE` | JWT `aud` claim (default `rishta-app`) | |
+| `FIREBASE_PROJECT_ID` | Firebase project ID | ✅ |
+| `FIREBASE_CLIENT_EMAIL` | Firebase service account email | ✅ |
+| `FIREBASE_PRIVATE_KEY` | Firebase service account private key (with `\n`) | ✅ |
+| `STREAM_API_KEY` | Stream Chat API key | ✅ |
+| `STREAM_API_SECRET` | Stream Chat API secret | ✅ |
+| `REVENUECAT_WEBHOOK_SECRET` | RevenueCat webhook signature secret | ✅ |
+| `CORS_ORIGINS` | Comma-separated allowed origins (no defaults in prod) | ✅ |
+| `ADMIN_TOKEN` | Legacy admin token (deprecated) | |
+| `ADMIN_USER_IDS` | Comma-separated admin user UUIDs | |
+| `REDIS_URL` | Redis for distributed throttling (optional) | |
+| `STORAGE_BUCKET_HOST` | Firebase Storage host override | |
+| `STORAGE_BUCKET_NAME` | Firebase Storage bucket name | |
+| `NODE_ENV` | `development` \| `production` \| `test` | |
+| `PORT` | HTTP port (default 3000) | |
+| `TRUST_PROXY` | `true`/`false` — trust `X-Forwarded-For` | |
 
-Spec §2.3 lists the rules that must not be bypassable. Most are DB-level, so a
-future code path that forgets a rule still cannot break it:
+### Health checks
 
-| Rule | Enforced by |
-|---|---|
-| Minimum age 18 | `users_min_age` trigger — raises on any insert/update of `dob` |
-| Verified phone unique | partial unique index `users_phone_verified_uniq` |
-| Re-verify on primary photo change | `profiles_reverify_on_photo_change` trigger |
-| No duplicate matches | normalized pair + `CHECK (user_a_id < user_b_id)` + unique index |
-| Atomic like quota | application SQL — a live counter, so it stays a single `UPDATE ... WHERE likes_remaining_today > 0` with a rows-affected check |
-| Quota resets nightly, never on login | `@Cron` in `SubscriptionService.nightlyQuotaReset` |
-| Lapse gates new likes only | `FeedService.like` requires `status = 'active'`; `/matches` and chat read no subscription state at all |
-| Feed excludes passes and blocks | `FeedService.feed` — `NOT EXISTS` on both tables, in both directions |
+- `GET /health` — liveness (always 200)
+- `GET /ready` — readiness (checks DB connectivity)
+
+### Migration flow
+
+Migrations live in `sql/migrations/` and are managed by `node-pg-migrate`:
+- `npm run db:migrate` — apply pending migrations
+- `npm run db:migrate:create <name>` — create new migration file
+- `npm run db:migrate:down` — rollback last migration
+
+Seed data (dev only):
+```bash
+npm run db:seed    # refuses to run when NODE_ENV=production
+```
 
 ### Notable implementations
 
-- **`Repo<T>`** (`src/db/db.ts`) — one generic table gateway for every table.
-  Table and column names come from server-authored code, never a request body.
-- **Stream tokens** (`src/auth/auth.service.ts:getStreamToken`) — a Stream token via `stream-chat` SDK.
-- **Moderation** (`src/moderation/`) — flags for human review rather than
-  hard-blocking, per §2.5. Both providers degrade to passthrough when their
-  credentials are absent, so the pipeline is exercisable in development. In
-  production an unconfigured verification provider refuses rather than
-  auto-approving (`VerificationService.assertProvider`).
-- **Structured logging** (`src/main.ts`) — JSON logs with request ID and user ID.
-  Sensitive data (tokens, emails, coordinates) is redacted automatically.
-- **Account deletion** (`src/account/account.controller.ts:delete`) — cascade deletes
-  all related data plus storage object cleanup. Data export endpoint
-  (`src/account/account.controller.ts:export`) returns full user data for GDPR.
-- **Push notifications** (`src/notifications/push.service.ts`) — **stub only**,
-  logs but does not send. Does not claim to work in README.
+- **`Repo<T>`** (`src/db/db.ts`) — generic table gateway; column allowlist per table.
+- **Stream tokens** (`src/auth/auth.service.ts:getStreamToken`) — issues Stream server token.
+- **Moderation** (`src/moderation/`) — flags for human review; degrades to passthrough when unconfigured.
+- **Structured logging** (`src/main.ts`) — JSON logs with request ID + user ID; PII redacted.
+- **Account deletion** (`src/account/account.controller.ts`) — cascade + storage cleanup; GDPR export endpoint.
+- **Refresh tokens** — SHA-256 stored, rotation with reuse detection, family revocation.
+- **Outbox pattern** — async side effects (push, etc.) via `outbox` table + pg-boss worker.
 
 ---
 
@@ -67,54 +89,43 @@ flutter run --dart-define=API_BASE=http://10.0.2.2:3000 \
             --dart-define=STREAM_API_KEY=your_stream_key
 ```
 
-
 `10.0.2.2` is the Android emulator's alias for the host machine.
 
 ### Structure
 
-- `lib/core/` — `theme.dart` (design tokens — the layer that mirrors to Figma),
-  `api.dart` (one generic request path), `models.dart`, `providers.dart`,
-  `widgets.dart` (`AsyncView` collapses loading/error/empty/data for every screen)
+- `lib/core/` — `theme.dart` (design tokens), `api.dart` (generic HTTP client), `models.dart`, `providers.dart`, `widgets.dart` (`AsyncView`)
 - `lib/features/` — one folder per area, one file per screen
+
+---
+
+## Known stubs (intentionally incomplete)
+
+| Area | File | Status |
+|------|------|--------|
+| **Store billing** | `app/lib/features/subscription/subscription_screen.dart` | `_purchase` throws `UnimplementedError` in release; RevenueCat/Play Billing pending |
+| **Face Liveness client** | `app/lib/features/onboarding/selfie_screen.dart` | Uses `camera` package; swap for Amplify `FaceLivenessDetector` |
+| **Device fingerprint** | `app/lib/core/auth_providers.dart` | `device_id` not sent; Firebase App Check intended |
+| **Push notifications** | `backend/src/notifications/push.service.ts` | Log-only stub; integrate FCM/APNs/SNS for production |
+| **Photo storage** | `app/lib/core/storage.dart` | Mock bucket URL; replace with Firebase Storage upload |
 
 ---
 
 ## Deliberate deviations from the spec
 
-1. **`profiles.name` added.** §1.2 lists Name as a profile-creation field; the
-   §2.2 data model has no column for it. The endpoint would otherwise be unable
-   to store a required field.
-2. **`notification_preferences`, `device_tokens`, `moderation_flags` added.**
-   §2.4 and §2.5 require the endpoints and the flagging pipeline, but §2.2 has
-   no tables for them.
-3. **`gender` and `dob` are nullable.** `POST /auth/verify-token` creates the
-   users row before onboarding runs, so a `NOT NULL dob` would reject signup.
-   A paired `CHECK` keeps the two consistent, and the age trigger still fires
-   the moment `dob` is set.
-4. **The feed also excludes already-liked profiles.** §2.3 names passes and
-   blocks only, but an outgoing like is a swipe-past too, and §1.2 says a card
-   the user already swiped should never re-render.
-5. **`CANCELLATION` keeps status `active`.** A cancelled subscription has been
-   paid through `renews_at`; marking it `cancelled` would revoke access the user
-   already bought. The nightly job expires it once that date passes.
-6. **Photo bytes never touch the API.** The client uploads straight to Firebase
-   Storage and `POST /profile/photo` records the resulting URL.
-7. **`flutter_svg` omitted** — the spec lists it under UI polish, but the app has
-   no SVG assets. An unused dependency is worse than a missing one; add it when
-   the first vector asset lands.
+1. **`profiles.name` added.** §1.2 lists Name as a profile-creation field; §2.2 data model has no column.
+2. **`notification_preferences`, `device_tokens`, `moderation_flags` added.** Required by §2.4/2.5 endpoints but missing from §2.2.
+3. **`gender` and `dob` nullable.** Created before onboarding completes; `CHECK` keeps them consistent.
+4. **Feed excludes already-liked profiles.** §2.3 names passes/blocks only; outgoing like = swipe-past.
+5. **`CANCELLATION` keeps status `active`.** Paid through `renews_at`; nightly job expires it.
+6. **Photo bytes never touch API.** Client uploads to Firebase Storage; `POST /profile/photo` records URL.
+7. **`flutter_svg` omitted.** No SVG assets; will add when first vector asset lands.
+
+---
 
 ## Still open
 
-- **Store billing.** `SubscriptionScreen._purchase` is a clearly-marked stub —
-  RevenueCat/Play Billing is the remaining piece of build step 7. The server
-  side it feeds (`POST /subscription/webhook`) is complete and authenticated.
-- **Face Liveness client SDK.** The server implements the full
-  `CreateFaceLivenessSession` → `GetFaceLivenessSessionResults` → `CompareFaces`
-  flow. The app currently captures with the `camera` package and submits; swap in
-  Amplify's `FaceLivenessDetector` against the returned `sessionId` for
-  production-grade liveness.
-- **Device fingerprint.** `users.device_id` and the per-device account cap are
-  implemented; the client does not yet send one. Firebase App Check is the
-  intended source (§2.3).
-- **Push notifications.** `PushService` is a log-only stub. Integrate Firebase
-  Messaging / APNs / SNS for production.
+- **Store billing.** RevenueCat/Play Billing integration.
+- **Face Liveness client SDK.** Amplify `FaceLivenessDetector` integration.
+- **Device fingerprint.** Firebase App Check integration.
+- **Push notifications.** FCM/APNs/SNS integration.
+- **Photo privacy controls, guardian/family involvement, religion/sect/city filters, report SLAs.** Product features (see `docs/scaling-plan.md`).

@@ -1,12 +1,12 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Db } from '../db/db';
 import { UserRow } from '../db/types';
-import * as bcrypt from 'bcrypt';
 import { getAuth } from 'firebase-admin/auth';
 import { initializeApp, cert, getApps, App } from 'firebase-admin/app';
+import { createHash, randomBytes } from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -44,6 +44,11 @@ export class AuthService {
   private readonly REFRESH_TOKEN_TTL_DAYS = 30;
   private readonly ACCESS_TOKEN_TTL_MINUTES = 15;
 
+  // SHA-256 hash for refresh token (high-entropy token, no bcrypt needed)
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
   async validateFirebaseIdToken(idToken: string): Promise<{ firebaseUid: string; email: string; emailVerified: boolean; name?: string }> {
     try {
       const decodedToken = await getAuth(this.firebaseApp).verifyIdToken(idToken, true);
@@ -66,7 +71,8 @@ export class AuthService {
     const user = await this.usersService.findOrCreateByFirebaseUid(
       firebasePayload.firebaseUid,
       firebasePayload.email,
-      firebasePayload.name
+      firebasePayload.name,
+      firebasePayload.emailVerified // Pass emailVerified
     );
 
     // Check if user has completed onboarding
@@ -94,40 +100,74 @@ export class AuthService {
   }
 
   async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
-    // Hash the provided refresh token to compare with stored hash
-    const tokens = await this.db.all<{ id: string; user_id: string; token_hash: string; expires_at: Date; revoked_at: Date | null }>(
-      'SELECT * FROM refresh_tokens WHERE expires_at > now() AND revoked_at IS NULL'
-    );
+    const tokenHash = this.hashToken(refreshToken);
 
-    // Find matching token (bcrypt compare)
-    let matchedToken: { id: string; user_id: string; token_hash: string; expires_at: Date } | null = null;
-    for (const t of tokens) {
-      if (await bcrypt.compare(refreshToken, t.token_hash)) {
-        matchedToken = t;
-        break;
+    // Atomic rotation with reuse detection in single transaction
+    return this.db.tx(async (conn) => {
+      // Look up token by hash directly (O(1) with unique index)
+      const existingToken = await conn.oneOrNone<{
+        id: string;
+        user_id: string;
+        token_hash: string;
+        expires_at: Date;
+        revoked_at: Date | null;
+        family_id: string;
+        replaced_by: string | null;
+      }>(
+        'SELECT id, user_id, token_hash, expires_at, revoked_at, family_id, replaced_by FROM refresh_tokens WHERE token_hash = $1',
+        [tokenHash]
+      );
+
+      if (!existingToken) {
+        throw new UnauthorizedException('Invalid or expired refresh token');
       }
-    }
 
-    if (!matchedToken) {
-      throw new UnauthorizedException('Invalid or expired refresh token');
-    }
+      if (existingToken.revoked_at) {
+        // Reuse detection: token was already used and revoked
+        if (existingToken.replaced_by) {
+          // Revoke entire family - potential token theft
+          await conn.query(
+            'UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL',
+            [existingToken.family_id]
+          );
+        }
+        throw new UnauthorizedException('Token reuse detected - session revoked');
+      }
 
-    // Revoke the old token (rotating refresh token)
-    await this.db.query(
-      'UPDATE refresh_tokens SET revoked_at = now(), replaced_by = $1 WHERE id = $2',
-      [matchedToken.id, matchedToken.id]
-    );
+      if (existingToken.expires_at < new Date()) {
+        throw new UnauthorizedException('Refresh token expired');
+      }
 
-    // Issue new token pair
-    const { accessToken, refreshToken: newRefreshToken } = await this.issueTokenPair(matchedToken.user_id);
+      // Generate new token pair
+      const newRefreshToken = this.generateRefreshToken();
+      const newTokenHash = this.hashToken(newRefreshToken);
+      const newFamilyId = randomBytes(16).toString('hex');
+      const expiresAt = new Date(Date.now() + this.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
 
-    // Update the revoked token with replaced_by reference
-    await this.db.query(
-      'UPDATE refresh_tokens SET replaced_by = (SELECT id FROM refresh_tokens WHERE token_hash = $1 AND user_id = $2) WHERE id = $3',
-      [await bcrypt.hash(newRefreshToken, 10), matchedToken.user_id, matchedToken.id]
-    );
+      // Insert new token first
+      const newToken = await conn.one<{ id: string }>(
+        'INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at) VALUES ($1, $2, $3, $4) RETURNING id',
+        [existingToken.user_id, newTokenHash, newFamilyId, expiresAt]
+      );
+      if (!newToken) throw new Error('Failed to create new refresh token');
 
-    return { accessToken, refreshToken: newRefreshToken };
+      // Revoke old token and link to new one
+      await conn.query(
+        'UPDATE refresh_tokens SET revoked_at = now(), replaced_by = $1 WHERE id = $2',
+        [newToken.id, existingToken.id]
+      );
+
+      // Issue new access token
+      const jwtSecret = this.configService.get<string>('JWT_SECRET')!;
+      const accessToken = this.jwtService.sign({ userId: existingToken.user_id }, {
+        secret: jwtSecret,
+        expiresIn: `${this.ACCESS_TOKEN_TTL_MINUTES}m`,
+        issuer: this.configService.get<string>('JWT_ISSUER') ?? 'rishta-api',
+        audience: this.configService.get<string>('JWT_AUDIENCE') ?? 'rishta-app',
+      });
+
+      return { accessToken, refreshToken: newRefreshToken };
+    });
   }
 
   private async issueTokenPair(userId: string): Promise<{ accessToken: string; refreshToken: string }> {
@@ -136,20 +176,23 @@ export class AuthService {
       throw new Error('JWT_SECRET is not configured');
     }
 
-    // Generate access token (short-lived)
+    // Generate access token with iss/aud claims
     const accessToken = this.jwtService.sign({ userId }, {
       secret: jwtSecret,
       expiresIn: `${this.ACCESS_TOKEN_TTL_MINUTES}m`,
+      issuer: this.configService.get<string>('JWT_ISSUER') ?? 'rishta-api',
+      audience: this.configService.get<string>('JWT_AUDIENCE') ?? 'rishta-app',
     });
 
-    // Generate refresh token (long-lived, random)
+    // Generate refresh token (high-entropy, SHA-256 stored)
     const refreshToken = this.generateRefreshToken();
-    const tokenHash = await bcrypt.hash(refreshToken, 10);
+    const tokenHash = this.hashToken(refreshToken);
+    const familyId = randomBytes(16).toString('hex');
     const expiresAt = new Date(Date.now() + this.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
 
     await this.db.query(
-      'INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)',
-      [userId, tokenHash, expiresAt]
+      'INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at) VALUES ($1, $2, $3, $4)',
+      [userId, tokenHash, familyId, expiresAt]
     );
 
     return { accessToken, refreshToken };
@@ -157,23 +200,23 @@ export class AuthService {
 
   private generateRefreshToken(): string {
     // 32 bytes = 256 bits of entropy
-    const array = new Uint8Array(32);
-    crypto.getRandomValues(array);
-    return Buffer.from(array).toString('base64url');
+    return randomBytes(32).toString('base64url');
   }
 
   async logout(userId: string, refreshToken?: string): Promise<{ success: boolean }> {
     if (refreshToken) {
-      // Revoke specific refresh token
-      const tokens = await this.db.all<{ id: string; token_hash: string }>(
-        'SELECT id, token_hash FROM refresh_tokens WHERE user_id = $1 AND revoked_at IS NULL',
-        [userId]
+      // Revoke specific refresh token (and its family for security)
+      const tokenHash = this.hashToken(refreshToken);
+      const token = await this.db.oneOrNone<{ id: string; family_id: string }>(
+        'SELECT id, family_id FROM refresh_tokens WHERE token_hash = $1',
+        [tokenHash]
       );
-      for (const t of tokens) {
-        if (await bcrypt.compare(refreshToken, t.token_hash)) {
-          await this.db.query('UPDATE refresh_tokens SET revoked_at = now() WHERE id = $1', [t.id]);
-          break;
-        }
+      if (token) {
+        // Revoke entire family to prevent any reuse
+        await this.db.query(
+          'UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL',
+          [token.family_id]
+        );
       }
     } else {
       // Revoke all refresh tokens for user
@@ -182,23 +225,92 @@ export class AuthService {
     return { success: true };
   }
 
-  async getStreamToken(userId: string): Promise<{ token: string }> {
-    const streamApiKey = this.configService.get<string>('STREAM_API_KEY');
-    const streamApiSecret = this.configService.get<string>('STREAM_API_SECRET');
+  private streamClient: any = null;
 
-    if (!streamApiKey || !streamApiSecret) {
-      throw new Error('Stream Chat not configured');
+  private getStreamClient() {
+    if (!this.streamClient) {
+      const streamApiKey = this.configService.get<string>('STREAM_API_KEY');
+      const streamApiSecret = this.configService.get<string>('STREAM_API_SECRET');
+
+      if (!streamApiKey || !streamApiSecret) {
+        throw new Error('Stream Chat not configured');
+      }
+
+      const { StreamChat } = require('stream-chat');
+      this.streamClient = StreamChat.getInstance(streamApiKey, streamApiSecret);
     }
+    return this.streamClient;
+  }
 
-    // Create a server-side Stream token for the user
-    const { StreamChat } = await import('stream-chat');
-    const serverClient = StreamChat.getInstance(streamApiKey, streamApiSecret);
-    const token = serverClient.createToken(userId);
+  async getStreamToken(userId: string): Promise<{ token: string; expiresAt: number }> {
+    const client = this.getStreamClient();
 
-    return { token };
+    // Upsert Stream user server-side
+    await client.upsertUser({
+      id: userId,
+      role: 'user',
+    });
+
+    // Create token with 1 hour expiry
+    const token = client.createToken(userId);
+    const expiresAt = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+
+    return { token, expiresAt };
   }
 
   async validateUser(userId: string): Promise<UserRow | null> {
     return this.usersService.findOne(userId);
+  }
+
+  async getProfileSummary(userId: string): Promise<{
+    userId: string;
+    email: string;
+    emailVerified: boolean;
+    authProvider: string | null;
+    firebaseUid: string | null;
+    status: string;
+    createdAt: Date;
+    onboardingComplete: boolean;
+    verificationStatus: string | null;
+    subscriptionPlan: string;
+  }> {
+    const user = await this.usersService.findOne(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Check onboarding completion
+    let onboardingComplete = false;
+    try {
+      await this.usersService.requireOnboarded(userId);
+      onboardingComplete = true;
+    } catch {
+      onboardingComplete = false;
+    }
+
+    // Get profile for verification status
+    const profile = await this.db.oneOrNone<{ verification_status: string }>(
+      'SELECT verification_status FROM profiles WHERE user_id = $1',
+      [userId]
+    );
+
+    // Get subscription plan
+    const subscription = await this.db.oneOrNone<{ plan: string }>(
+      'SELECT plan FROM subscriptions WHERE user_id = $1',
+      [userId]
+    );
+
+    return {
+      userId: user.id,
+      email: user.email ?? '',
+      emailVerified: user.email_verified,
+      authProvider: user.auth_provider,
+      firebaseUid: user.firebase_uid,
+      status: user.status ?? 'active',
+      createdAt: user.created_at,
+      onboardingComplete,
+      verificationStatus: profile?.verification_status ?? 'pending',
+      subscriptionPlan: subscription?.plan ?? 'free',
+    };
   }
 }

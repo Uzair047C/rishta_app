@@ -110,40 +110,48 @@ describe('SubscriptionController', () => {
 
     it('should return 200 for malformed event (missing type)', async () => {
       const result = await controller.webhook({ event: { app_user_id: mockUser.id, type: '' } }, 'secret');
-      expect(result).toEqual({ applied: false, status: 'inactive' });
+      expect(result).toEqual({ kind: 'noop', applied: false });
     });
 
     it('should return 200 for malformed event (missing app_user_id)', async () => {
       const result = await controller.webhook({ event: { type: 'INITIAL_PURCHASE' } }, 'secret');
-      expect(result).toEqual({ applied: false, status: 'inactive' });
+      expect(result).toEqual({ kind: 'noop', applied: false });
     });
 
     it('should return 200 for null body', async () => {
       const result = await controller.webhook(null as any, 'secret');
-      expect(result).toEqual({ applied: false, status: 'inactive' });
+      expect(result).toEqual({ kind: 'noop', applied: false });
     });
 
     it('should call applyWebhook with event and authorization header', async () => {
-      subscriptionService.applyWebhook.mockResolvedValue({ applied: true, status: 'active' });
+      const mockResult = {
+        kind: 'set' as const,
+        applied: true as const,
+        status: 'active' as const,
+        plan: 'plus',
+        previousStatus: 'active' as const,
+        previousPlan: 'free',
+      };
+      subscriptionService.applyWebhook.mockResolvedValue(mockResult);
 
       const result = await controller.webhook({ event: validEvent }, 'test-secret');
 
       expect(subscriptionService.applyWebhook).toHaveBeenCalledWith(validEvent, 'test-secret');
-      expect(result).toEqual({ applied: true, status: 'active' });
+      expect(result).toEqual(mockResult);
     });
 
     it('should return 200 even when service throws UnauthorizedException (no retries)', async () => {
       subscriptionService.applyWebhook.mockRejectedValue(new UnauthorizedException('invalid_webhook_secret'));
 
       const result = await controller.webhook({ event: validEvent }, 'wrong-secret');
-      expect(result).toEqual({ applied: false, status: 'inactive' });
+      expect(result).toEqual({ kind: 'noop', applied: false });
     });
 
     it('should return 200 for any service error (no retries)', async () => {
       subscriptionService.applyWebhook.mockRejectedValue(new Error('unexpected error'));
 
       const result = await controller.webhook({ event: validEvent }, 'secret');
-      expect(result).toEqual({ applied: false, status: 'inactive' });
+      expect(result).toEqual({ kind: 'noop', applied: false });
     });
   });
 });

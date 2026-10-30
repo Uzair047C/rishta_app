@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, ConflictException, NotFoundException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { Db } from '../db/db';
 import { UserRow } from '../db/types';
@@ -58,10 +58,22 @@ describe('UsersService', () => {
       db.oneOrNone
         .mockResolvedValueOnce(mockUser); // First call: find by Firebase UID
 
-      const result = await service.findOrCreateByFirebaseUid('firebase-uid-123', 'test@example.com');
+      const result = await service.findOrCreateByFirebaseUid('firebase-uid-123', 'test@example.com', undefined, true);
 
       expect(result).toEqual(mockUser);
       expect(db.oneOrNone).toHaveBeenCalledTimes(1);
+      // Should not call UPDATE since email_verified is already true
+      expect(db.query).not.toHaveBeenCalled();
+    });
+
+    it('should update email_verified when Firebase says verified and user is not verified', async () => {
+      const userNotVerified = { ...mockUser, email_verified: false };
+      db.oneOrNone.mockResolvedValueOnce(userNotVerified);
+      db.query.mockResolvedValue({ rows: [], rowCount: 1 });
+
+      const result = await service.findOrCreateByFirebaseUid('firebase-uid-123', 'test@example.com', undefined, true);
+
+      expect(result.email_verified).toBe(true);
       expect(db.query).toHaveBeenCalledWith(
         'UPDATE users SET email_verified = true WHERE id = $1',
         [mockUser.id]
@@ -72,13 +84,13 @@ describe('UsersService', () => {
       const userWithoutProvider = { ...mockUser, firebase_uid: null, auth_provider: null, provider_subject: null, email_verified: true };
       db.oneOrNone
         .mockResolvedValueOnce(null) // No Firebase UID match
-        .mockResolvedValueOnce(userWithoutProvider) // Find by email
-        .mockResolvedValueOnce({ firebase_uid: null }); // No existing firebase_uid
+        .mockResolvedValueOnce(userWithoutProvider); // Find by email
       db.query.mockResolvedValue({ rows: [], rowCount: 1 });
 
-      const result = await service.findOrCreateByFirebaseUid('firebase-uid-456', 'test@example.com');
+      const result = await service.findOrCreateByFirebaseUid('firebase-uid-456', 'test@example.com', undefined, true);
 
-      expect(result).toEqual(userWithoutProvider);
+      expect(result.firebase_uid).toBe('firebase-uid-456');
+      expect(result.email_verified).toBe(true);
       expect(db.query).toHaveBeenCalledWith(
         expect.stringContaining('UPDATE users SET'),
         [userWithoutProvider.id, 'firebase-uid-456']
@@ -86,14 +98,13 @@ describe('UsersService', () => {
     });
 
     it('should throw conflict when email is linked to different firebase_uid', async () => {
-      const userWithDifferentProvider = { ...mockUser, firebase_uid: 'different-uid', auth_provider: 'firebase', provider_subject: 'different-uid' };
+      const userWithDifferentProvider = { ...mockUser, firebase_uid: 'different-uid', auth_provider: 'firebase', provider_subject: 'different-uid', email_verified: true };
       db.oneOrNone
         .mockResolvedValueOnce(null) // No Firebase UID match
-        .mockResolvedValueOnce(userWithDifferentProvider) // Find by email
-        .mockResolvedValueOnce({ firebase_uid: 'different-uid' }); // Existing provider
+        .mockResolvedValueOnce(userWithDifferentProvider); // Find by email
 
-      await expect(service.findOrCreateByFirebaseUid('firebase-uid-456', 'test@example.com'))
-        .rejects.toThrow('Account already exists with different Firebase UID');
+      await expect(service.findOrCreateByFirebaseUid('firebase-uid-456', 'test@example.com', undefined, true))
+        .rejects.toThrow(ConflictException);
     });
 
     it('should create new user when no existing user found', async () => {
@@ -102,17 +113,34 @@ describe('UsersService', () => {
         .mockResolvedValueOnce(null); // No email match
       db.one.mockResolvedValue(mockUser);
 
-      const result = await service.findOrCreateByFirebaseUid('firebase-uid-new', 'new@example.com', 'John Doe');
+      const result = await service.findOrCreateByFirebaseUid('firebase-uid-new', 'new@example.com', 'John Doe', true);
 
       expect(result).toEqual(mockUser);
       expect(db.one).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO users'),
-        expect.arrayContaining(['new@example.com', 'firebase-uid-new'])
+        expect.arrayContaining(['new@example.com', 'firebase-uid-new', true])
       );
     });
 
     it('should throw when email not provided', async () => {
-      await expect(service.findOrCreateByFirebaseUid('firebase-uid', '')).rejects.toThrow('Email not provided from Firebase');
+      await expect(service.findOrCreateByFirebaseUid('firebase-uid', '')).rejects.toThrow(ConflictException);
+    });
+
+    it('should NOT link by email when emailVerified is false', async () => {
+      const userWithVerifiedEmail = { ...mockUser, firebase_uid: null, auth_provider: null, provider_subject: null, email_verified: true };
+      db.oneOrNone
+        .mockResolvedValueOnce(null) // No Firebase UID match
+        .mockResolvedValueOnce(userWithVerifiedEmail); // Find by email (but emailVerified=false, so should skip)
+
+      // When emailVerified=false, the function should NOT look up by email
+      // and should create a new user instead
+      db.one.mockResolvedValue(mockUser);
+
+      const result = await service.findOrCreateByFirebaseUid('firebase-uid-456', 'test@example.com', undefined, false);
+
+      expect(result).toEqual(mockUser);
+      // Should only call oneOrNone once (for firebase_uid lookup)
+      expect(db.oneOrNone).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -125,10 +153,10 @@ describe('UsersService', () => {
       expect(result).toEqual(mockUser);
     });
 
-    it('should throw when user not found', async () => {
+    it('should throw NotFoundException when user not found', async () => {
       db.oneOrNone.mockResolvedValue(null);
 
-      await expect(service.require('non-existent-id')).rejects.toThrow('User not found');
+      await expect(service.require('non-existent-id')).rejects.toThrow(NotFoundException);
     });
   });
 

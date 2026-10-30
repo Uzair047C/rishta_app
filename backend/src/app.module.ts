@@ -27,19 +27,29 @@ import { throttlerKeyGenerator } from './auth/throttler-options';
 import { PhotosModule } from './photos/photos.module';
 import { PgBossModule } from './pg-boss/pg-boss.module';
 import { AccountController } from './account/account.controller';
+import { validateConfig } from './config/validation';
+import { redisStorageFactory } from './auth/redis-throttler-storage';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validate: validateConfig,
+    }),
     ScheduleModule.forRoot(),
     // Spec 2.1 — global baseline; auth, like and report routes tighten it locally
     // with @Throttle.
-    ThrottlerModule.forRoot({
-      throttlers: [
-        { name: 'default', ttl: 60_000, limit: 100 },
-      ],
-      // Key by user ID when authenticated, otherwise by IP
-      getTracker: throttlerKeyGenerator,
+    ThrottlerModule.forRootAsync({
+      useFactory: (redisStorage: any) => ({
+        throttlers: [
+          { name: 'default', ttl: 60_000, limit: 100 },
+        ],
+        // Key by user ID when authenticated, otherwise by IP
+        getTracker: throttlerKeyGenerator,
+        // Use Redis storage when REDIS_URL is configured
+        ...(redisStorage ? { storage: redisStorage } : {}),
+      }),
+      inject: [redisStorageFactory],
     }),
     AuthModule,
     PgBossModule,
