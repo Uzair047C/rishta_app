@@ -47,6 +47,7 @@ export interface ProfileRow {
   photos: string[];
   bio_flagged: boolean;
   verification_status: VerificationStatus;
+  city: string | null;
   updated_at: Date;
 }
 

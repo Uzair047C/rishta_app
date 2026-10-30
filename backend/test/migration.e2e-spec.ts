@@ -38,12 +38,12 @@ describe('Database migrations (e2e)', () => {
       log: () => {}, // silence logs
     });
 
-    // Check that all 13 migrations were applied
+    // Check that all 14 migrations were applied
     const { rows } = await testPool.query(`
       SELECT name FROM pgmigrations ORDER BY name
     `);
     const versions = rows.map(r => r.name);
-    expect(versions.length).toBe(13);
+    expect(versions.length).toBe(14);
     expect(versions).toEqual([
       '0001_init',
       '0002_add_firebase_uid_and_email_index',
@@ -58,6 +58,7 @@ describe('Database migrations (e2e)', () => {
       '0011_refresh_tokens',
       '0012_add_outbox',
       '0013_add_seeking_column',
+      '0014_fixes',
     ]);
   });
 
@@ -155,5 +156,46 @@ describe('Database migrations (e2e)', () => {
       WHERE tablename = 'outbox' AND indexname = 'outbox_pending_idx'
     `);
     expect(indexes.length).toBe(1);
+  });
+
+  // 0014_fixes tests
+  it('should have profiles.city column', async () => {
+    const { rows } = await testPool.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'profiles' AND column_name = 'city'
+    `);
+    expect(rows.length).toBe(1);
+  });
+
+  it('should have subscriptions status CHECK with paused', async () => {
+    const { rows } = await testPool.query(`
+      SELECT constraint_name, check_clause FROM information_schema.check_constraints
+      JOIN information_schema.table_constraints USING (constraint_name)
+      WHERE table_name = 'subscriptions' AND constraint_name = 'subscriptions_status_check'
+    `);
+    expect(rows.length).toBe(1);
+    expect(rows[0].check_clause).toContain('paused');
+  });
+
+  it('should have reports partial unique index', async () => {
+    const { rows } = await testPool.query(`
+      SELECT indexname FROM pg_indexes
+      WHERE tablename = 'reports' AND indexname = 'reports_open_unique'
+    `);
+    expect(rows.length).toBe(1);
+  });
+
+  it('should have idempotency_keys table with correct schema', async () => {
+    const { rows } = await testPool.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'idempotency_keys' AND column_name IN ('user_id', 'key', 'route', 'response', 'created_at')
+    `);
+    expect(rows.length).toBe(5);
+
+    const { rows: pk } = await testPool.query(`
+      SELECT constraint_name FROM information_schema.table_constraints
+      WHERE table_name = 'idempotency_keys' AND constraint_type = 'PRIMARY KEY'
+    `);
+    expect(pk.length).toBe(1);
   });
 });
