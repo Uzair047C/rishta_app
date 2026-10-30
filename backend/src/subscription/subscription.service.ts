@@ -71,12 +71,6 @@ export class SubscriptionService implements OnModuleInit {
    * Fixed timezone logic: uses date_trunc at PKT then converts back to UTC.
    */
   async nightlyQuotaReset(): Promise<void> {
-    // Expiry: active subscriptions where renews_at < now()
-    const lapsed = await this.db.query(
-      `UPDATE subscriptions SET status = 'expired'
-        WHERE status = 'active' AND renews_at IS NOT NULL AND renews_at < now()`,
-    );
-
     // Quota reset: compare quota_reset_at to start of PKT day in UTC
     // date_trunc('day', now() AT TIME ZONE 'Asia/Karachi') gives start of PKT day as timestamp without TZ
     // AT TIME ZONE 'Asia/Karachi' converts it back to timestamptz (UTC)
@@ -87,12 +81,49 @@ export class SubscriptionService implements OnModuleInit {
           AND (quota_reset_at IS NULL
             OR quota_reset_at < (date_trunc('day', now() AT TIME ZONE 'Asia/Karachi') AT TIME ZONE 'Asia/Karachi'))`,
     );
-    this.log.log(`quota reset: ${reset.rowCount ?? 0} active, ${lapsed.rowCount ?? 0} lapsed`);
+    this.log.log(`quota reset: ${reset.rowCount ?? 0} active`);
+  }
+
+  /**
+   * Hourly job to expire active subscriptions where renews_at < now().
+   * Expired paid users fall back to FREE plan (not blocked entirely).
+   * Free plan users with renews_at < now() become 'expired' status but keep free allowance.
+   */
+  async hourlyExpireLapsed(): Promise<void> {
+    // For paid plans (plus, gold): expire and fall back to free
+    const paidExpired = await this.db.query(
+      `UPDATE subscriptions
+         SET status = 'expired',
+             plan = 'free',
+             daily_allowance = $1,
+             likes_remaining_today = $1
+       WHERE status = 'active'
+         AND plan <> 'free'
+         AND renews_at IS NOT NULL
+         AND renews_at < now()`,
+      [this.getAllowanceByPlan().free],
+    );
+
+    // For free plan: just mark as expired (no access, but they can still use free tier)
+    const freeExpired = await this.db.query(
+      `UPDATE subscriptions
+         SET status = 'expired'
+       WHERE status = 'active'
+         AND plan = 'free'
+         AND renews_at IS NOT NULL
+         AND renews_at < now()`,
+    );
+
+    if ((paidExpired.rowCount ?? 0) > 0 || (freeExpired.rowCount ?? 0) > 0) {
+      this.log.log(`hourly expire: ${paidExpired.rowCount ?? 0} paid->free, ${freeExpired.rowCount ?? 0} free expired`);
+    }
   }
 
   async onModuleInit(): Promise<void> {
     // Startup catch-up: run quota reset once at startup
     await this.nightlyQuotaReset();
+    // Also run expire check at startup
+    await this.hourlyExpireLapsed();
 
     // Schedule daily quota reset at midnight PKT via pg-boss
     await this.pgBoss.schedule(
@@ -102,12 +133,26 @@ export class SubscriptionService implements OnModuleInit {
       { timezone: 'Asia/Karachi' },
     );
 
-    // Define the worker
+    // Define the quota reset worker
     await this.pgBoss.subscribe('quota.reset', async () => {
       await this.nightlyQuotaReset();
     }, { teamSize: 1, teamConcurrency: 1 });
 
+    // Schedule hourly lapse expiry check via pg-boss
+    await this.pgBoss.schedule(
+      'subscriptions.expire',
+      '0 * * * *', // Hourly at minute 0
+      {},
+      { timezone: 'UTC' },
+    );
+
+    // Define the hourly expire worker
+    await this.pgBoss.subscribe('subscriptions.expire', async () => {
+      await this.hourlyExpireLapsed();
+    }, { teamSize: 1, teamConcurrency: 1 });
+
     this.log.log('Quota reset job scheduled (daily at midnight PKT)');
+    this.log.log('Subscription expire job scheduled (hourly)');
   }
 
   /**

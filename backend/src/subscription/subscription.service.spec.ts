@@ -429,25 +429,21 @@ describe('SubscriptionService', () => {
   });
 
   describe('nightlyQuotaReset', () => {
-    it('should reset quota for active subscriptions', async () => {
-      db.query
-        .mockResolvedValueOnce({ rowCount: 0, rows: [] }) // lapsed
-        .mockResolvedValueOnce({ rowCount: 5, rows: [] }); // reset
+    it('should reset quota for active subscriptions (single query now)', async () => {
+      db.query.mockResolvedValueOnce({ rowCount: 5, rows: [] }); // reset
 
       await service.nightlyQuotaReset();
 
-      expect(db.query).toHaveBeenCalledTimes(2);
+      expect(db.query).toHaveBeenCalledTimes(1);
     });
 
     it('should be idempotent per day using quota_reset_at with correct PKT timezone logic', async () => {
-      db.query
-        .mockResolvedValueOnce({ rowCount: 0, rows: [] })
-        .mockResolvedValueOnce({ rowCount: 0, rows: [] }); // No rows to reset if already reset today
+      db.query.mockResolvedValueOnce({ rowCount: 0, rows: [] }); // No rows to reset if already reset today
 
       await service.nightlyQuotaReset();
 
       // Verify the reset query includes the corrected idempotency check
-      const resetCall = db.query.mock.calls[1];
+      const resetCall = db.query.mock.calls[0];
       expect(resetCall[0]).toContain("date_trunc('day', now() AT TIME ZONE 'Asia/Karachi') AT TIME ZONE 'Asia/Karachi'");
     });
   });
