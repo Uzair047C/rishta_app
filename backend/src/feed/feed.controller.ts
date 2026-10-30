@@ -45,7 +45,8 @@ export class FeedController {
   }
 
   /** Stricter limit than the global default — this is a write with a quota. */
-  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  // like 60/min/user
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   @Post('like')
   async like(@CurrentUser() userId: string, @Body() dto: TargetDto) {
     return this.feed.like(userId, dto.userId);

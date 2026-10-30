@@ -1,24 +1,12 @@
-import {
-  Body,
-  CanActivate,
-  Controller,
-  ExecutionContext,
-  ForbiddenException,
-  Get,
-  Injectable,
-  Param,
-  ParseUUIDPipe,
-  Patch,
-  Post,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, CanActivate, Controller, ExecutionContext, ForbiddenException, Get, Injectable, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Reflector } from '@nestjs/core';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Db } from '../db/db';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import * as crypto from 'crypto';
 
 const QUEUE_STATUSES = ['open', 'reviewing', 'actioned', 'dismissed'] as const;
 const USER_STATUSES = ['active', 'suspended', 'banned'] as const;
@@ -39,22 +27,57 @@ class UserActionDto {
 }
 
 /**
- * Admin guard: checks if the authenticated user has admin role.
- * Requires a 'role' column on users table or an admins table.
- * For now, check a simple admin flag in users table.
+ * Admin guard: checks if the authenticated user is an admin.
+ * Supports two modes:
+ * 1. ADMIN_USER_IDS (preferred) - comma-separated list of user UUIDs with admin role
+ * 2. ADMIN_TOKEN - static token compared with timing-safe comparison
  */
 @Injectable()
 export class AdminGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  private readonly adminUserIds: Set<string>;
+  private readonly adminToken: string | null;
+
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly config: ConfigService,
+  ) {
+    // Parse ADMIN_USER_IDS (comma-separated UUIDs)
+    const adminUserIdsStr = this.config.get<string>('ADMIN_USER_IDS') ?? '';
+    this.adminUserIds = new Set(
+      adminUserIdsStr.split(',').map(s => s.trim()).filter(Boolean)
+    );
+
+    // Get ADMIN_TOKEN for timing-safe comparison
+    this.adminToken = this.config.get<string>('ADMIN_TOKEN') ?? null;
+  }
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const request = ctx.switchToHttp().getRequest();
     const user = request.user;
 
-    if (!user || !user.is_admin) {
-      throw new ForbiddenException('admin_only');
+    // Check ADMIN_USER_IDS first (preferred)
+    if (user?.id && this.adminUserIds.has(user.id)) {
+      return true;
     }
-    return true;
+
+    // Fallback: check ADMIN_TOKEN with timing-safe comparison
+    if (this.adminToken) {
+      const providedToken = request.headers['x-admin-token'] as string | undefined;
+      if (providedToken) {
+        const providedBuf = Buffer.from(providedToken);
+        const expectedBuf = Buffer.from(this.adminToken);
+        if (providedBuf.length === expectedBuf.length && crypto.timingSafeEqual(providedBuf, expectedBuf)) {
+          return true;
+        }
+      }
+    }
+
+    // Fallback: check is_admin flag on user (legacy)
+    if (user?.is_admin) {
+      return true;
+    }
+
+    throw new ForbiddenException('admin_only');
   }
 }
 

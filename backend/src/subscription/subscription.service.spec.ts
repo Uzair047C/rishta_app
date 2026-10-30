@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { UnauthorizedException, BadRequestException, ConflictException } from '@nestjs/common';
+import { UnauthorizedException } from '@nestjs/common';
 import { SubscriptionService, WebhookEvent } from './subscription.service';
 import { Db } from '../db/db';
 import { ConfigService } from '@nestjs/config';
@@ -82,6 +82,18 @@ describe('SubscriptionService', () => {
       ...overrides,
     });
 
+    const setupTxMock = (webhookQueryRowCount: number, oneOrNoneResponses: any[]) => {
+      db.tx.mockImplementationOnce(async (fn: any) => {
+        const txConn = {
+          query: jest.fn().mockResolvedValue({ rowCount: webhookQueryRowCount, rows: [] }),
+          one: jest.fn(),
+          oneOrNone: jest.fn(),
+        };
+        txConn.oneOrNone.mockImplementation(() => oneOrNoneResponses.shift());
+        return fn(txConn);
+      });
+    };
+
     it('should reject invalid secret with UnauthorizedException', async () => {
       const event = createBaseEvent();
       await expect(service.applyWebhook(event, 'wrong-secret')).rejects.toThrow(UnauthorizedException);
@@ -89,27 +101,11 @@ describe('SubscriptionService', () => {
 
     it('should accept valid secret with timing-safe comparison', async () => {
       const event = createBaseEvent();
-
-      // Mock tx to return a connection with proper methods
-      let txConn: any;
-      db.tx.mockImplementation(async (fn: any) => {
-        txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        // Mock the call sequence inside transaction:
-        // 1. webhook_events INSERT -> rowCount 1 (not duplicate)
-        // 2. user lookup -> mockUser
-        // 3. out-of-order check (last_event_at_ms) -> null
-        // 4. ensure() SELECT -> mockSub
-        txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 }) // webhook_events INSERT
-          .mockResolvedValueOnce(mockUser) // user lookup
-          .mockResolvedValueOnce({ last_event_at_ms: null }) // out-of-order check
-          .mockResolvedValueOnce(mockSub); // ensure() SELECT
-        return fn(txConn);
-      });
+      setupTxMock(1, [ // webhook_events INSERT rowCount = 1 (not duplicate)
+        mockUser, // user lookup
+        { last_event_at_ms: null }, // out-of-order check
+        mockSub, // ensure() SELECT
+      ]);
 
       const result = await service.applyWebhook(event, validSecret);
       expect(result.kind).toBe('set');
@@ -120,37 +116,21 @@ describe('SubscriptionService', () => {
     it('should deduplicate by event id (replayed event is no-op)', async () => {
       const event = createBaseEvent();
 
-      // First call
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 }) // webhook_events INSERT (not duplicate)
-          .mockResolvedValueOnce(mockUser)
-          .mockResolvedValueOnce({ last_event_at_ms: null })
-          .mockResolvedValueOnce(mockSub);
-        return fn(txConn);
-      });
+      // First call - not duplicate
+      setupTxMock(1, [ // webhook_events INSERT rowCount = 1
+        mockUser,
+        { last_event_at_ms: null },
+        mockSub,
+      ]);
 
       await service.applyWebhook(event, validSecret);
 
       // Second call with same event id - should be duplicate
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 0 }) // webhook_events INSERT (duplicate!)
-          .mockResolvedValueOnce(mockUser)
-          .mockResolvedValueOnce({ last_event_at_ms: null })
-          .mockResolvedValueOnce(mockSub);
-        return fn(txConn);
-      });
+      setupTxMock(0, [ // webhook_events INSERT rowCount = 0 (duplicate!)
+        mockUser,
+        { last_event_at_ms: null },
+        mockSub,
+      ]);
 
       const result = await service.applyWebhook(event, validSecret);
       expect(result.kind).toBe('noop');
@@ -164,15 +144,7 @@ describe('SubscriptionService', () => {
         event_timestamp_ms: Date.now(),
       };
 
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone.mockResolvedValueOnce({ rowCount: 1 }); // webhook_events INSERT
-        return fn(txConn);
-      });
+      setupTxMock(1, []); // webhook_events INSERT
 
       const result = await service.applyWebhook(transferEvent, validSecret);
       expect(result.kind).toBe('noop');
@@ -182,15 +154,7 @@ describe('SubscriptionService', () => {
     it('should return 200 for non-UUID app_user_id (not 500)', async () => {
       const invalidEvent = createBaseEvent({ app_user_id: 'not-a-uuid' });
 
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone.mockResolvedValueOnce({ rowCount: 1 }); // webhook_events INSERT
-        return fn(txConn);
-      });
+      setupTxMock(1, []); // webhook_events INSERT
 
       const result = await service.applyWebhook(invalidEvent, validSecret);
       expect(result.kind).toBe('noop');
@@ -200,15 +164,7 @@ describe('SubscriptionService', () => {
     it('should return 200 for missing app_user_id', async () => {
       const invalidEvent = createBaseEvent({ app_user_id: undefined });
 
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone.mockResolvedValueOnce({ rowCount: 1 }); // webhook_events INSERT
-        return fn(txConn);
-      });
+      setupTxMock(1, []); // webhook_events INSERT
 
       const result = await service.applyWebhook(invalidEvent, validSecret);
       expect(result.kind).toBe('noop');
@@ -230,35 +186,19 @@ describe('SubscriptionService', () => {
       });
 
       // First call - renewal
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 }) // webhook_events INSERT
-          .mockResolvedValueOnce(mockUser)
-          .mockResolvedValueOnce({ last_event_at_ms: null })
-          .mockResolvedValueOnce(mockSub);
-        return fn(txConn);
-      });
+      setupTxMock(1, [ // webhook_events INSERT
+        mockUser,
+        { last_event_at_ms: null },
+        mockSub,
+      ]);
 
       await service.applyWebhook(renewalEvent, validSecret);
 
       // Second call - out-of-order expiration
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 }) // webhook_events INSERT
-          .mockResolvedValueOnce(mockUser)
-          .mockResolvedValueOnce({ last_event_at_ms: now }); // out-of-order check: has last_event_at_ms > event
-        return fn(txConn);
-      });
+      setupTxMock(1, [ // webhook_events INSERT
+        mockUser,
+        { last_event_at_ms: now }, // out-of-order check: has last_event_at_ms > event
+      ]);
 
       const result = await service.applyWebhook(expirationEvent, validSecret);
       expect(result.kind).toBe('noop');
@@ -268,19 +208,11 @@ describe('SubscriptionService', () => {
     it('should not change state for TEST event', async () => {
       const testEvent = createBaseEvent({ id: 'evt_test_456', type: 'TEST' });
 
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 }) // webhook_events INSERT
-          .mockResolvedValueOnce(mockUser)
-          .mockResolvedValueOnce({ last_event_at_ms: null })
-          .mockResolvedValueOnce(mockSub);
-        return fn(txConn);
-      });
+      setupTxMock(1, [ // webhook_events INSERT
+        mockUser,
+        { last_event_at_ms: null },
+        mockSub,
+      ]);
 
       const result = await service.applyWebhook(testEvent, validSecret);
       expect(result.kind).toBe('noop');
@@ -290,19 +222,11 @@ describe('SubscriptionService', () => {
     it('should not change state for SUBSCRIBER_ALIAS event', async () => {
       const aliasEvent = createBaseEvent({ id: 'evt_alias_123', type: 'SUBSCRIBER_ALIAS' });
 
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 })
-          .mockResolvedValueOnce(mockUser)
-          .mockResolvedValueOnce({ last_event_at_ms: null })
-          .mockResolvedValueOnce(mockSub);
-        return fn(txConn);
-      });
+      setupTxMock(1, [
+        mockUser,
+        { last_event_at_ms: null },
+        mockSub,
+      ]);
 
       const result = await service.applyWebhook(aliasEvent, validSecret);
       expect(result.kind).toBe('noop');
@@ -310,21 +234,13 @@ describe('SubscriptionService', () => {
     });
 
     it('should set status to active for NON_RENEWING_PURCHASE event', async () => {
-      const purchaseEvent = createBaseEvent({ id: 'evt_nonrenew_123', type: 'NON_RENEWING_PURCHASE', product_id: 'rishta_lifetime' });
+      const purchaseEvent = createBaseEvent({ id: 'evt_nonrenew_123', type: 'NON_RENEWING_PURCHASE', product_id: 'rishta_plus_monthly' });
 
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 })
-          .mockResolvedValueOnce(mockUser)
-          .mockResolvedValueOnce({ last_event_at_ms: null })
-          .mockResolvedValueOnce(mockSub);
-        return fn(txConn);
-      });
+      setupTxMock(1, [
+        mockUser,
+        { last_event_at_ms: null },
+        mockSub,
+      ]);
 
       const result = await service.applyWebhook(purchaseEvent, validSecret);
       expect(result.kind).toBe('set');
@@ -335,19 +251,11 @@ describe('SubscriptionService', () => {
     it('should not change state for INVOICE_ISSUANCE event', async () => {
       const invoiceEvent = createBaseEvent({ id: 'evt_invoice_123', type: 'INVOICE_ISSUANCE' });
 
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 })
-          .mockResolvedValueOnce(mockUser)
-          .mockResolvedValueOnce({ last_event_at_ms: null })
-          .mockResolvedValueOnce(mockSub);
-        return fn(txConn);
-      });
+      setupTxMock(1, [
+        mockUser,
+        { last_event_at_ms: null },
+        mockSub,
+      ]);
 
       const result = await service.applyWebhook(invoiceEvent, validSecret);
       expect(result.kind).toBe('noop');
@@ -357,19 +265,11 @@ describe('SubscriptionService', () => {
     it('should keep user active during BILLING_ISSUE grace period', async () => {
       const billingEvent = createBaseEvent({ id: 'evt_billing_123', type: 'BILLING_ISSUE', expiration_at_ms: Date.now() + 86400000 * 30 });
 
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 })
-          .mockResolvedValueOnce(mockUser)
-          .mockResolvedValueOnce({ last_event_at_ms: null })
-          .mockResolvedValueOnce(mockSub);
-        return fn(txConn);
-      });
+      setupTxMock(1, [
+        mockUser,
+        { last_event_at_ms: null },
+        mockSub,
+      ]);
 
       const result = await service.applyWebhook(billingEvent, validSecret);
       expect(result.kind).toBe('set');
@@ -380,19 +280,11 @@ describe('SubscriptionService', () => {
     it('should set status to expired for EXPIRATION event', async () => {
       const expirationEvent = createBaseEvent({ id: 'evt_expiration_456', type: 'EXPIRATION' });
 
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 })
-          .mockResolvedValueOnce(mockUser)
-          .mockResolvedValueOnce({ last_event_at_ms: null })
-          .mockResolvedValueOnce(mockSub);
-        return fn(txConn);
-      });
+      setupTxMock(1, [
+        mockUser,
+        { last_event_at_ms: null },
+        mockSub,
+      ]);
 
       const result = await service.applyWebhook(expirationEvent, validSecret);
       expect(result.kind).toBe('set');
@@ -403,19 +295,11 @@ describe('SubscriptionService', () => {
     it('should set status to paused for SUBSCRIPTION_PAUSED event', async () => {
       const pausedEvent = createBaseEvent({ id: 'evt_paused_123', type: 'SUBSCRIPTION_PAUSED' });
 
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 })
-          .mockResolvedValueOnce(mockUser)
-          .mockResolvedValueOnce({ last_event_at_ms: null })
-          .mockResolvedValueOnce(mockSub);
-        return fn(txConn);
-      });
+      setupTxMock(1, [
+        mockUser,
+        { last_event_at_ms: null },
+        mockSub,
+      ]);
 
       const result = await service.applyWebhook(pausedEvent, validSecret);
       expect(result.kind).toBe('set');
@@ -426,19 +310,11 @@ describe('SubscriptionService', () => {
     it('should handle SUBSCRIPTION_EXTENDED as active', async () => {
       const extendedEvent = createBaseEvent({ id: 'evt_extended_123', type: 'SUBSCRIPTION_EXTENDED' });
 
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 })
-          .mockResolvedValueOnce(mockUser)
-          .mockResolvedValueOnce({ last_event_at_ms: null })
-          .mockResolvedValueOnce(mockSub);
-        return fn(txConn);
-      });
+      setupTxMock(1, [
+        mockUser,
+        { last_event_at_ms: null },
+        mockSub,
+      ]);
 
       const result = await service.applyWebhook(extendedEvent, validSecret);
       expect(result.kind).toBe('set');
@@ -452,49 +328,42 @@ describe('SubscriptionService', () => {
       // Mock existing subscription with renews_at and plus plan
       const existingSub = { ...mockSub, renews_at: new Date('2026-12-01'), plan: 'plus' };
 
+      let capturedTxConn: any;
       db.tx.mockImplementationOnce(async (fn: any) => {
         const txConn = {
           query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
           one: jest.fn(),
           oneOrNone: jest.fn(),
         };
+        capturedTxConn = txConn;
         txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 }) // webhook_events INSERT
           .mockResolvedValueOnce(mockUser) // user lookup
           .mockResolvedValueOnce({ last_event_at_ms: null }) // out-of-order check
-          .mockResolvedValueOnce(existingSub) // ensure() SELECT
-          .mockResolvedValueOnce({ renews_at: existingSub.renews_at }); // extra renews_at lookup
+          .mockResolvedValueOnce(existingSub); // ensure() SELECT
         return fn(txConn);
       });
 
       await service.applyWebhook(eventNoExpiration, validSecret);
 
-      // Find the UPDATE subscriptions call
-      const updateCalls = db.query.mock.calls.filter(call =>
+      // Find the UPDATE subscriptions call on the txConn
+      const updateCalls = capturedTxConn.query.mock.calls.filter((call: unknown[]) =>
         typeof call[0] === 'string' && call[0].includes('UPDATE subscriptions')
       );
       expect(updateCalls.length).toBeGreaterThan(0);
 
       const updateCall = updateCalls[updateCalls.length - 1];
       const params = updateCall[1] as unknown[];
-      expect(params[4]).toEqual(existingSub.renews_at); // renews_at should not be null
-      expect(params[5]).toEqual(eventNoExpiration.event_timestamp_ms);
+      // params: [user_id, status, plan, daily_allowance, likes_remaining_today, renews_at, last_event_at_ms]
+      expect(params[5]).toEqual(existingSub.renews_at); // renews_at should not be null (index 5)
+      expect(params[6]).toEqual(eventNoExpiration.event_timestamp_ms);
     });
 
     it('should return 200 for unknown user (not 500)', async () => {
       const event = createBaseEvent();
 
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 }) // webhook_events INSERT
-          .mockResolvedValueOnce(null); // user lookup - not found
-        return fn(txConn);
-      });
+      setupTxMock(1, [ // webhook_events INSERT
+        null, // user lookup - not found
+      ]);
 
       const result = await service.applyWebhook(event, validSecret);
       expect(result.kind).toBe('noop');
@@ -504,19 +373,11 @@ describe('SubscriptionService', () => {
     it('should handle CANCELLATION as active (access until renews_at)', async () => {
       const cancelEvent = createBaseEvent({ id: 'evt_cancel_123', type: 'CANCELLATION' });
 
-      db.tx.mockImplementationOnce(async (fn: any) => {
-        const txConn = {
-          query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
-          one: jest.fn(),
-          oneOrNone: jest.fn(),
-        };
-        txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 })
-          .mockResolvedValueOnce(mockUser)
-          .mockResolvedValueOnce({ last_event_at_ms: null })
-          .mockResolvedValueOnce(mockSub);
-        return fn(txConn);
-      });
+      setupTxMock(1, [
+        mockUser,
+        { last_event_at_ms: null },
+        mockSub,
+      ]);
 
       const result = await service.applyWebhook(cancelEvent, validSecret);
       expect(result.kind).toBe('set');
@@ -526,20 +387,19 @@ describe('SubscriptionService', () => {
 
     it('should not refill quota on CANCELLATION or BILLING_ISSUE', async () => {
       const cancelEvent = createBaseEvent({ id: 'evt_cancel_123', type: 'CANCELLATION' });
-      const billingEvent = createBaseEvent({ id: 'evt_billing_123', type: 'BILLING_ISSUE' });
 
       // Set up mock with existing likes_remaining_today = 5
       const existingSub = { ...mockSub, likes_remaining_today: 5, plan: 'plus' };
 
-      // For cancellation
+      let capturedTxConn: any;
       db.tx.mockImplementationOnce(async (fn: any) => {
         const txConn = {
           query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [] }),
           one: jest.fn(),
           oneOrNone: jest.fn(),
         };
+        capturedTxConn = txConn;
         txConn.oneOrNone
-          .mockResolvedValueOnce({ rowCount: 1 })
           .mockResolvedValueOnce(mockUser)
           .mockResolvedValueOnce({ last_event_at_ms: null })
           .mockResolvedValueOnce(existingSub);
@@ -551,11 +411,12 @@ describe('SubscriptionService', () => {
       expect(cancelResult.applied).toBe(true);
       if (cancelResult.kind === 'set') expect(cancelResult.status).toBe('active');
 
-      // Check the UPDATE call - likes_remaining_today should remain 5 (not reset to 50)
-      const cancelUpdateCalls = db.query.mock.calls.filter(call =>
+      // Check the UPDATE call on txConn - likes_remaining_today should remain 5 (not reset to 50)
+      const cancelUpdateCalls = capturedTxConn.query.mock.calls.filter((call: unknown[]) =>
         typeof call[0] === 'string' && call[0].includes('UPDATE subscriptions')
       );
       const cancelParams = cancelUpdateCalls[cancelUpdateCalls.length - 1][1] as unknown[];
+      // params: [user_id, status, plan, daily_allowance, likes_remaining_today, renews_at, last_event_at_ms]
       expect(cancelParams[4]).toBe(5); // likes_remaining_today should stay 5, not reset to 50
     });
   });

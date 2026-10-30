@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import 'package:http/http.dart' as http;
@@ -16,6 +17,10 @@ enum ApiError {
   profileIncomplete,
   notRegistered,
   blocked,
+  targetNotVerified,
+  unavailable,
+  previouslyUnmatched,
+  networkError,
   unknown;
 
   static ApiError parse(String? code) => switch (code) {
@@ -26,6 +31,10 @@ enum ApiError {
         'profile_incomplete' => ApiError.profileIncomplete,
         'not_registered' => ApiError.notRegistered,
         'blocked' => ApiError.blocked,
+        'target_not_verified' => ApiError.targetNotVerified,
+        'unavailable' => ApiError.unavailable,
+        'previously_unmatched' => ApiError.previouslyUnmatched,
+        'network_error' => ApiError.networkError,
         _ => ApiError.unknown,
       };
 
@@ -39,6 +48,10 @@ enum ApiError {
         ApiError.profileIncomplete => 'Finish your profile before browsing.',
         ApiError.notRegistered => 'Please sign in again.',
         ApiError.blocked => 'This profile is not available.',
+        ApiError.targetNotVerified => 'This profile is not available. Please try another.',
+        ApiError.unavailable => 'This profile is not available right now.',
+        ApiError.previouslyUnmatched => 'You previously unmatched. A new match is not possible.',
+        ApiError.networkError => 'Network error. Please check your connection and try again.',
         ApiError.unknown => 'Something went wrong. Please try again.',
       };
 }
@@ -81,6 +94,9 @@ class Api {
   /// Current access token (cached after first read).
   String? _cachedAccessToken;
 
+  /// Completer for single-flight refresh: concurrent 401s share one refresh call.
+  Completer<bool>? _refreshing;
+
   /// Gets the access token, loading from storage if needed.
   Future<String?> _getAccessToken() async {
     if (_cachedAccessToken != null) return _cachedAccessToken;
@@ -117,6 +133,18 @@ class Api {
     return apiBase;
   }
 
+  /// Generates an idempotency key for mutating requests.
+  String _generateIdempotencyKey() {
+    // Simple UUID v4 without external dependency
+    final random = DateTime.now().microsecondsSinceEpoch;
+    final chars = '0123456789abcdef';
+    return [
+      for (var i = 0; i < 16; i++)
+        i == 6 ? '4' : i == 8 ? '89ab'[random % 4] : chars[random % 16]
+    ].join();
+  }
+
+  /// Single request path: handles timeouts, non-JSON bodies, error mapping, 401 retry, and idempotency.
   Future<T> request<T>(
     String method,
     String path, {
@@ -124,6 +152,7 @@ class Api {
     Object? body,
     Map<String, Object?>? query,
     bool requiresAuth = true,
+    bool retried = false,
   }) async {
     final base = await _resolveBase();
     final uri = Uri.parse('$base$path').replace(
@@ -132,6 +161,11 @@ class Api {
 
     final request = http.Request(method, uri)
       ..headers['content-type'] = 'application/json';
+
+    // Add idempotency key for mutating requests (like, purchase)
+    if (requiresAuth && (method == 'POST' || method == 'PUT' || method == 'PATCH')) {
+      request.headers['idempotency-key'] = _generateIdempotencyKey();
+    }
 
     // Add Authorization header if auth is required
     if (requiresAuth) {
@@ -152,14 +186,28 @@ class Api {
 
     final startTime = DateTime.now();
     // Wrap send AND body read in the same timeout
-    final stream = _client.send(request);
-    final http.StreamedResponse streamedResponse;
+    http.StreamedResponse streamedResponse;
     try {
-      streamedResponse = await stream.timeout(_timeout);
-    } on TimeoutException {
-      throw ApiException(0, 'timeout', 'Request timed out');
+      streamedResponse = await _client.send(request).timeout(_timeout);
+    } on TimeoutException catch (_) {
+      throw ApiException(0, 'network_error', 'Request timed out');
+    } on SocketException catch (_) {
+      throw ApiException(0, 'network_error', 'Network error');
+    } on Exception catch (_) {
+      throw ApiException(0, 'network_error', 'Network error');
     }
-    final response = await http.Response.fromStream(streamedResponse).timeout(_timeout);
+
+    http.Response response;
+    try {
+      response = await http.Response.fromStream(streamedResponse).timeout(_timeout);
+    } on TimeoutException catch (_) {
+      throw ApiException(0, 'network_error', 'Response timed out');
+    } on SocketException catch (_) {
+      throw ApiException(0, 'network_error', 'Network error');
+    } on Exception catch (_) {
+      throw ApiException(0, 'network_error', 'Network error');
+    }
+
     final duration = DateTime.now().difference(startTime).inMilliseconds;
 
     Object? decoded;
@@ -181,28 +229,11 @@ class Api {
     }
 
     // Handle 401: try to refresh token and retry once
-    if (response.statusCode == 401 && requiresAuth) {
+    if (response.statusCode == 401 && requiresAuth && !retried) {
       final refreshed = await _tryRefreshToken();
       if (refreshed) {
         // Retry the request with new token
-        final retryRequest = http.Request(method, uri)
-          ..headers['content-type'] = 'application/json'
-          ..headers['authorization'] = 'Bearer $_cachedAccessToken';
-        if (body != null) retryRequest.body = jsonEncode(body);
-
-        final startTime2 = DateTime.now();
-        final retryResponse = await http.Response.fromStream(await _client.send(retryRequest)).timeout(_timeout);
-        final duration2 = DateTime.now().difference(startTime2).inMilliseconds;
-        final decoded2 = retryResponse.body.isEmpty ? null : jsonDecode(retryResponse.body);
-
-        if (kDebugMode) {
-          debugPrint('API Retry Response: $method $_base$path ${retryResponse.statusCode} (${duration2}ms)');
-        }
-
-        if (retryResponse.statusCode >= 400) {
-          throw ApiException(retryResponse.statusCode, _messageOf(decoded2), retryResponse.body);
-        }
-        return parse(decoded2);
+        return await this.request<T>(method, path, parse: parse, body: body, query: query, requiresAuth: requiresAuth, retried: true);
       }
       // Refresh failed - clear auth state
       await _authStorage.clear();
@@ -218,10 +249,21 @@ class Api {
 
   /// Attempt to refresh the access token using the refresh token.
   /// Returns true if refresh succeeded.
+  /// Uses single-flight: concurrent calls share one refresh operation.
   Future<bool> _tryRefreshToken() async {
+    // Return existing refresh operation if in progress
+    if (_refreshing != null) {
+      return _refreshing!.future;
+    }
+
+    _refreshing = Completer<bool>();
+
     try {
       final refreshToken = await _authStorage.getRefreshToken();
-      if (refreshToken == null) return false;
+      if (refreshToken == null) {
+        _refreshing!.complete(false);
+        return false;
+      }
 
       final base = await _resolveBase();
       final response = await _client.post(
@@ -235,24 +277,32 @@ class Api {
         final newAccessToken = decoded['accessToken'] as String?;
         final newRefreshToken = decoded['refreshToken'] as String?;
         if (newAccessToken != null && newRefreshToken != null) {
-          await _authStorage.setAccessToken(newAccessToken);
-          await _authStorage.getRefreshToken().then((old) async {
-            if (old != null) {
-              await _authStorage.setTokens(
-                accessToken: newAccessToken,
-                refreshToken: newRefreshToken,
-                userId: (await _authStorage.getUserId()) ?? '',
-              );
-            }
-          });
+          // Atomic token update
+          await _authStorage.setTokens(
+            accessToken: newAccessToken,
+            refreshToken: newRefreshToken,
+            userId: (await _authStorage.getUserId()) ?? '',
+          );
           _cachedAccessToken = newAccessToken;
+          _refreshing!.complete(true);
           return true;
         }
       }
+      // Auth failure (401/400) - clear session
+      if (response.statusCode == 401 || response.statusCode == 400) {
+        await _authStorage.clear();
+        clearCachedToken();
+      }
+      _refreshing!.complete(false);
       return false;
     } catch (e) {
+      // Network/timeout errors - keep session, return false to signal retryable failure
       if (kDebugMode) debugPrint('Token refresh failed: $e');
+      _refreshing!.complete(false);
       return false;
+    } finally {
+      // Clear completer after a tick to allow new refresh attempts
+      Future.microtask(() => _refreshing = null);
     }
   }
 
@@ -273,7 +323,6 @@ class Api {
         },
         query: query,
       );
-
 
   /// NestJS puts the code in `message`, which is a string for a thrown
   /// HttpException and a list for a ValidationPipe failure.

@@ -9,6 +9,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  // /auth/* 10/min/IP
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('firebase')
   @Public()
@@ -16,7 +17,8 @@ export class AuthController {
     return this.authService.firebaseLogin(idToken);
   }
 
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  // refresh 30/min/IP
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Post('refresh')
   @Public()
   async refresh(@Body() { refreshToken }: { refreshToken: string }) {
