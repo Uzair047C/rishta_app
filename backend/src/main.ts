@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { validateConfig } from './config/validation';
+import { Db } from './db/db';
 
 // Structured logging middleware with request ID and user ID
 function structuredLoggingMiddleware() {
@@ -85,16 +86,14 @@ async function bootstrap(): Promise<void> {
   validateConfig(process.env);
 
   const app = await NestFactory.create(AppModule);
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.use(require('express').json({ limit: '100kb' }));
 
   // Security headers
   app.use(helmet({
     contentSecurityPolicy: false, // Disable CSP for API
     crossOriginEmbedderPolicy: false,
   }));
-
-  // JSON body size limit (100 KB default)
-  const expressApp = app.getHttpAdapter().getInstance();
-  expressApp.use(require('express').json({ limit: '100kb' }));
 
   // Trust proxy for correct IP addresses behind reverse proxy (nginx, cloudflare, etc.)
   // Enable via TRUST_PROXY=true in production
@@ -121,19 +120,20 @@ async function bootstrap(): Promise<void> {
   });
 
   // Health and readiness endpoints (public)
-  const express = require('express');
-  const router = express.Router();
-  router.get('/health', (req: Request, res: Response) => {
+  const { Router } = await import('express');
+  const router = Router();
+  router.get('/health', (_req: Request, res: Response) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
-  router.get('/ready', async (req: Request, res: Response) => {
+  router.get('/ready', async (_req: Request, res: Response) => {
     try {
-      const { Db } = await import('./db/db');
       const db = app.get(Db);
       await db.query('SELECT 1');
       res.json({ status: 'ready', database: 'connected' });
     } catch (err) {
-      res.status(503).json({ status: 'not ready', database: 'disconnected', error: String(err) });
+      // Log server-side, don't expose error details
+      console.error('Readiness check failed:', err);
+      res.status(503).json({ status: 'not ready', database: 'disconnected' });
     }
   });
   app.use('/', router);
