@@ -1,9 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Db } from '../db/db';
 import { FeedCard, UserRow } from '../db/types';
 import { PushService } from '../notifications/push.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { UsersService } from '../users/users.service';
+import { OutboxWorker } from '../pg-boss/outbox.worker';
 
 export interface FeedFilters {
   minAge?: number;
@@ -87,11 +88,14 @@ function decodeCursor(s: string): DecodedCursor | null {
  */
 @Injectable()
 export class FeedService {
+  private readonly log = new Logger(FeedService.name);
+
   constructor(
     private readonly db: Db,
     private readonly push: PushService,
     private readonly subscriptions: SubscriptionService,
     private readonly users: UsersService,
+    private readonly outboxWorker: OutboxWorker,
   ) {}
 
   async feed(userId: string, f: FeedFilters): Promise<FeedResult> {
@@ -317,7 +321,7 @@ export class FeedService {
       // 3. Check blocks in both directions (inside transaction)
       const blockedResult = await conn.one<{ n: number }>(
         `SELECT count(*)::int AS n FROM blocks
-         WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)`,
+           WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)`,
         [userId, targetId],
       );
       const blocked = blockedResult?.n ?? 0;
@@ -342,7 +346,7 @@ export class FeedService {
       // 5. Check if pair was previously unmatched
       const existingMatch = await conn.oneOrNone<{ id: string; unmatched_at: Date | null; unmatched_by: string | null }>(
         `SELECT id, unmatched_at, unmatched_by FROM matches
-         WHERE (user_a_id = $1 AND user_b_id = $2) OR (user_a_id = $2 AND user_b_id = $1)`,
+           WHERE (user_a_id = $1 AND user_b_id = $2) OR (user_a_id = $2 AND user_b_id = $1)`,
         [userId, targetId],
       );
       if (existingMatch?.unmatched_at) {
@@ -352,8 +356,8 @@ export class FeedService {
       // 6. Try to insert the like
       const likeResult = await conn.query(
         `INSERT INTO likes (from_user_id, to_user_id) VALUES ($1, $2)
-         ON CONFLICT (from_user_id, to_user_id) DO NOTHING
-         RETURNING id`,
+           ON CONFLICT (from_user_id, to_user_id) DO NOTHING
+           RETURNING id`,
         [userId, targetId],
       );
 
@@ -403,15 +407,17 @@ export class FeedService {
           `INSERT INTO outbox (type, payload) VALUES ($1, $2)`,
           ['new_like', JSON.stringify({ fromUserId: userId, toUserId: targetId })],
         );
+        // Fire-and-forget outbox processing for low latency
+        this.processOutboxAfterCommit().catch(err => this.log.warn('outbox post-commit processing failed', err));
         return { liked: true, matched: false, matchId: null, likesRemainingToday: remaining };
       }
 
       // 9. Match! Insert match (normalized pair) - don't revive unmatched
       const match = await conn.query(
         `INSERT INTO matches (user_a_id, user_b_id)
-         VALUES (least($1::uuid, $2::uuid), greatest($1::uuid, $2::uuid))
-         ON CONFLICT (user_a_id, user_b_id) DO NOTHING
-         RETURNING id`,
+           VALUES (least($1::uuid, $2::uuid), greatest($1::uuid, $2::uuid))
+           ON CONFLICT (user_a_id, user_b_id) DO NOTHING
+           RETURNING id`,
         [userId, targetId],
       );
 
@@ -428,14 +434,32 @@ export class FeedService {
         matchId = existing.id;
       }
 
-      // 10. Queue push notifications in outbox
+      // 10. Queue push notifications in outbox (only if match was newly created)
       await conn.query(
         `INSERT INTO outbox (type, payload) VALUES ($1, $2)`,
         ['new_match', JSON.stringify({ matchId, userIds: [userId, targetId] })],
       );
 
+      // Fire-and-forget outbox processing for low latency
+      this.processOutboxAfterCommit().catch(err => this.log.warn('outbox post-commit processing failed', err));
+
       return { liked: true, matched: true, matchId, likesRemainingToday: remaining };
     });
+  }
+
+  /**
+   * Fire-and-forget outbox processing after a transaction commits.
+   * Called after like/match to reduce push notification latency.
+   * Errors are logged but don't affect the like response.
+   */
+  private async processOutboxAfterCommit(): Promise<void> {
+    try {
+      // Small delay to ensure transaction is committed
+      await new Promise(resolve => setTimeout(resolve, 10));
+      await this.outboxWorker.processBatch(100);
+    } catch (err) {
+      this.log.warn(`post-commit outbox processing failed: ${String(err)}`);
+    }
   }
 
   async pass(userId: string, targetId: string): Promise<{ passed: true }> {
@@ -475,7 +499,7 @@ export class FeedService {
       // Insert pass
       await conn.query(
         `INSERT INTO passes (user_id, passed_user_id) VALUES ($1, $2)
-         ON CONFLICT (user_id, passed_user_id) DO NOTHING`,
+           ON CONFLICT (user_id, passed_user_id) DO NOTHING`,
         [userId, targetId],
       );
       return { passed: true };
@@ -519,15 +543,15 @@ export class FeedService {
       // 1. Insert block
       await conn.query(
         `INSERT INTO blocks (blocker_id, blocked_id) VALUES ($1, $2)
-         ON CONFLICT (blocker_id, blocked_id) DO NOTHING`,
+           ON CONFLICT (blocker_id, blocked_id) DO NOTHING`,
         [userId, targetId],
       );
 
       // 2. Remove pending likes in both directions
       await conn.query(
         `DELETE FROM likes
-         WHERE (from_user_id = $1 AND to_user_id = $2)
-            OR (from_user_id = $2 AND to_user_id = $1)`,
+           WHERE (from_user_id = $1 AND to_user_id = $2)
+              OR (from_user_id = $2 AND to_user_id = $1)`,
         [userId, targetId],
       );
 
