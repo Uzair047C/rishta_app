@@ -173,6 +173,7 @@ describe('AuthService', () => {
         oneOrNone: jest.fn().mockResolvedValue(null),
         one: jest.fn(),
         all: jest.fn(),
+        count: jest.fn(),
       };
       db.tx.mockImplementation(async (fn) => fn(mockTxDb));
 
@@ -193,6 +194,7 @@ describe('AuthService', () => {
         }),
         one: jest.fn(),
         all: jest.fn(),
+        count: jest.fn(),
       };
       db.tx.mockImplementation(async (fn) => fn(mockTxDb));
 
@@ -213,6 +215,7 @@ describe('AuthService', () => {
         }),
         one: jest.fn(),
         all: jest.fn(),
+        count: jest.fn(),
       };
       db.tx.mockImplementation(async (fn) => fn(mockTxDb));
 
@@ -233,6 +236,7 @@ describe('AuthService', () => {
         }),
         one: jest.fn().mockResolvedValue({ id: 'new-token-id' }),
         all: jest.fn(),
+        count: jest.fn(),
       };
       db.tx.mockImplementation(async (fn) => fn(mockTxDb));
       jwtService.sign.mockReturnValue('new-access-token');
