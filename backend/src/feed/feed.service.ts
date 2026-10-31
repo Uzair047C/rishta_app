@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Db } from '../db/db';
+import { Db, ExtendedQueryable } from '../db/db';
 import { FeedCard, UserRow } from '../db/types';
 import { PushService } from '../notifications/push.service';
 import { SubscriptionService } from '../subscription/subscription.service';
@@ -273,14 +273,84 @@ export class FeedService {
     }
 
     return {
-      items: rows.map(row => ({
-        ...row,
-        distance_bucket: distanceToBucket(row.distance_m ? row.distance_m / 1000 : null),
-        distance_m: undefined, // Don't expose precise distance
-        distance_km: undefined,
-      })),
+      items: rows.map(row => {
+        const { lat, lng, dob, distance_m, distance_km, geo, ...rest } = row;
+        return {
+          ...rest,
+          distance_bucket: distanceToBucket(distance_m ? distance_m / 1000 : null),
+        };
+      }),
       nextCursor,
     };
+  }
+
+  /**
+   * Validates that two users can interact (like each other).
+   * Checks: both users onboarded (profile, photos, gender), both genders set,
+   * no blocks in either direction, target exists and is active and verified.
+   * Also checks the LIKER's own status (active) and verification.
+   * Throws appropriate exceptions on failure.
+   * Uses sequential queries to avoid pg 8 concurrent query warnings on single client.
+   */
+  private async assertCanInteract(conn: ExtendedQueryable, userId: string, targetId: string): Promise<void> {
+    // Check onboarding and gender for both users in a single combined query
+    const [userCheck, targetCheck] = await Promise.all([
+      conn.oneOrNone<{ name: string | null; photos: string[] | null; gender: string | null }>(
+        `SELECT p.name, p.photos, u.gender
+           FROM profiles p JOIN users u ON u.id = p.user_id
+           WHERE p.user_id = $1`,
+        [userId],
+      ),
+      conn.oneOrNone<{ name: string | null; photos: string[] | null; gender: string | null }>(
+        `SELECT p.name, p.photos, u.gender
+           FROM profiles p JOIN users u ON u.id = p.user_id
+           WHERE p.user_id = $1`,
+        [targetId],
+      ),
+    ]);
+
+    if (!userCheck?.name || !userCheck?.photos?.length || !userCheck?.gender) {
+      throw new BadRequestException('profile_incomplete');
+    }
+    if (!targetCheck?.name || !targetCheck?.photos?.length || !targetCheck?.gender) {
+      throw new BadRequestException('profile_incomplete');
+    }
+
+    // Check blocks in both directions (inside transaction)
+    const blockedResult = await conn.one<{ n: number }>(
+      `SELECT count(*)::int AS n FROM blocks
+         WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)`,
+      [userId, targetId],
+    );
+    const blocked = blockedResult?.n ?? 0;
+    if (blocked) throw new ConflictException('unavailable'); // No info leak
+
+    // Verify target exists, is active, and verified (single combined query)
+    const target = await conn.oneOrNone<{ id: string; status: string | null; verification_status: string | null }>(
+      `SELECT u.id, u.status, p.verification_status
+         FROM users u JOIN profiles p ON p.user_id = u.id
+         WHERE u.id = $1`,
+      [targetId],
+    );
+    if (!target) throw new BadRequestException('unknown_user');
+    if (target.status !== 'active') throw new ConflictException('unavailable');
+    if (target.verification_status !== 'verified') {
+      throw new ConflictException('target_not_verified');
+    }
+
+    // Also verify the LIKER is active and verified (single combined query)
+    const user = await conn.oneOrNone<{ id: string; status: string | null; verification_status: string | null }>(
+      `SELECT u.id, u.status, p.verification_status
+         FROM users u JOIN profiles p ON p.user_id = u.id
+         WHERE u.id = $1`,
+      [userId],
+    );
+    if (!user || user.status !== 'active') {
+      throw new ConflictException('subscription_inactive');
+    }
+    if (user.verification_status !== 'verified') {
+      throw new ConflictException('user_not_verified');
+    }
   }
 
   /** Spec 2.3 — atomic quota check + decrement, then like and possible match.
@@ -302,48 +372,10 @@ export class FeedService {
         [userId, targetId],
       );
 
-      // 2. Check onboarding for both users (inside transaction)
-      const [userOnboarded, targetOnboarded] = await Promise.all([
-        conn.oneOrNone<{ '?column?': number }>('SELECT 1 FROM profiles WHERE user_id = $1 AND name IS NOT NULL AND photos IS NOT NULL AND array_length(photos, 1) > 0', [userId]),
-        conn.oneOrNone<{ '?column?': number }>('SELECT 1 FROM profiles WHERE user_id = $1 AND name IS NOT NULL AND photos IS NOT NULL AND array_length(photos, 1) > 0', [targetId]),
-      ]);
-      if (!userOnboarded || !targetOnboarded) {
-        throw new BadRequestException('profile_incomplete');
-      }
-      const [userGender, targetGender] = await Promise.all([
-        conn.oneOrNone<{ gender: string }>('SELECT gender FROM users WHERE id = $1', [userId]),
-        conn.oneOrNone<{ gender: string }>('SELECT gender FROM users WHERE id = $1', [targetId]),
-      ]);
-      if (!userGender?.gender || !targetGender?.gender) {
-        throw new BadRequestException('profile_incomplete');
-      }
+      // 2. Validate both users can interact (onboarding, gender, blocks, active, verified)
+      await this.assertCanInteract(conn, userId, targetId);
 
-      // 3. Check blocks in both directions (inside transaction)
-      const blockedResult = await conn.one<{ n: number }>(
-        `SELECT count(*)::int AS n FROM blocks
-           WHERE (blocker_id = $1 AND blocked_id = $2) OR (blocker_id = $2 AND blocked_id = $1)`,
-        [userId, targetId],
-      );
-      const blocked = blockedResult?.n ?? 0;
-      if (blocked) throw new ConflictException('unavailable'); // No info leak
-
-      // 4. Verify target exists, is active, and verified (inside transaction)
-      const target = await conn.oneOrNone<{ id: string; status: string | null }>(
-        'SELECT id, status FROM users WHERE id = $1',
-        [targetId],
-      );
-      if (!target) throw new BadRequestException('unknown_user');
-      if (target.status !== 'active') throw new ConflictException('unavailable'); // No info leak
-
-      const targetProfile = await conn.oneOrNone<{ verification_status: string }>(
-        'SELECT verification_status FROM profiles WHERE user_id = $1',
-        [targetId],
-      );
-      if (!targetProfile || targetProfile.verification_status !== 'verified') {
-        throw new ConflictException('target_not_verified');
-      }
-
-      // 5. Check if pair was previously unmatched
+      // 3. Check if pair was previously unmatched
       const existingMatch = await conn.oneOrNone<{ id: string; unmatched_at: Date | null; unmatched_by: string | null }>(
         `SELECT id, unmatched_at, unmatched_by FROM matches
            WHERE (user_a_id = $1 AND user_b_id = $2) OR (user_a_id = $2 AND user_b_id = $1)`,
@@ -465,7 +497,6 @@ export class FeedService {
   async pass(userId: string, targetId: string): Promise<{ passed: true }> {
     if (userId === targetId) throw new BadRequestException('cannot_pass_self');
 
-    // Use the same validation as like (inside transaction for consistency)
     return this.db.tx(async (conn) => {
       // Advisory lock on the pair
       await conn.query(
@@ -473,23 +504,7 @@ export class FeedService {
         [userId, targetId],
       );
 
-      // Check onboarding for both users
-      const [userOnboarded, targetOnboarded] = await Promise.all([
-        conn.oneOrNone<{ '?column?': number }>('SELECT 1 FROM profiles WHERE user_id = $1 AND name IS NOT NULL AND photos IS NOT NULL AND array_length(photos, 1) > 0', [userId]),
-        conn.oneOrNone<{ '?column?': number }>('SELECT 1 FROM profiles WHERE user_id = $1 AND name IS NOT NULL AND photos IS NOT NULL AND array_length(photos, 1) > 0', [targetId]),
-      ]);
-      if (!userOnboarded || !targetOnboarded) {
-        throw new BadRequestException('profile_incomplete');
-      }
-      const [userGender, targetGender] = await Promise.all([
-        conn.oneOrNone<{ gender: string }>('SELECT gender FROM users WHERE id = $1', [userId]),
-        conn.oneOrNone<{ gender: string }>('SELECT gender FROM users WHERE id = $1', [targetId]),
-      ]);
-      if (!userGender?.gender || !targetGender?.gender) {
-        throw new BadRequestException('profile_incomplete');
-      }
-
-      // Verify target exists
+      // Verify target exists (only requirement for pass)
       const target = await conn.oneOrNone<{ id: string }>(
         'SELECT id FROM users WHERE id = $1',
         [targetId],
@@ -517,23 +532,7 @@ export class FeedService {
         [userId, targetId],
       );
 
-      // Check onboarding for both users
-      const [userOnboarded, targetOnboarded] = await Promise.all([
-        conn.oneOrNone<{ '?column?': number }>('SELECT 1 FROM profiles WHERE user_id = $1 AND name IS NOT NULL AND photos IS NOT NULL AND array_length(photos, 1) > 0', [userId]),
-        conn.oneOrNone<{ '?column?': number }>('SELECT 1 FROM profiles WHERE user_id = $1 AND name IS NOT NULL AND photos IS NOT NULL AND array_length(photos, 1) > 0', [targetId]),
-      ]);
-      if (!userOnboarded || !targetOnboarded) {
-        throw new BadRequestException('profile_incomplete');
-      }
-      const [userGender, targetGender] = await Promise.all([
-        conn.oneOrNone<{ gender: string }>('SELECT gender FROM users WHERE id = $1', [userId]),
-        conn.oneOrNone<{ gender: string }>('SELECT gender FROM users WHERE id = $1', [targetId]),
-      ]);
-      if (!userGender?.gender || !targetGender?.gender) {
-        throw new BadRequestException('profile_incomplete');
-      }
-
-      // Verify target exists
+      // Verify target exists (only requirement for block)
       const target = await conn.oneOrNone<{ id: string }>(
         'SELECT id FROM users WHERE id = $1',
         [targetId],
@@ -568,7 +567,7 @@ export class FeedService {
         await conn.query(
           `INSERT INTO reports (reporter_id, reported_id, reason)
            VALUES ($1, $2, $3)
-           ON CONFLICT (reporter_id, reported_id, status) WHERE status = 'open' DO NOTHING`,
+           ON CONFLICT (reporter_id, reported_id) WHERE status = 'open' DO NOTHING`,
           [userId, targetId, reason],
         );
       }
