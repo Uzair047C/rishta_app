@@ -3,11 +3,11 @@ import { PhotosService } from './photos.service';
 import { PhotoModerationWorker } from './photo-moderation.worker';
 import { PgBossModule } from '../pg-boss/pg-boss.module';
 import { ModerationService } from '../moderation/moderation.service';
-import { VerificationService } from '../verification/verification.service';
+import { VerificationModule } from '../verification/verification.module';
 
 @Module({
-  imports: [PgBossModule],
-  providers: [PhotosService, PhotoModerationWorker, ModerationService, VerificationService],
+  imports: [PgBossModule, VerificationModule],
+  providers: [PhotosService, PhotoModerationWorker, ModerationService],
   exports: [PhotosService],
 })
 export class PhotosModule {}
