@@ -56,7 +56,7 @@ export const appConfigSchema = Joi.object({
   ADMIN_USER_IDS: Joi.string().allow('').optional(), // comma-separated UUIDs
 
   // Redis (for throttling)
-  REDIS_URL: Joi.string().uri().optional(),
+  REDIS_URL: Joi.string().uri().allow('').optional(),
 
   // Storage
   STORAGE_BUCKET_HOST: Joi.string().optional(),

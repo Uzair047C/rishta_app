@@ -1,10 +1,20 @@
 -- Migration 0002: Add firebase_uid column and email unique index
+-- Idempotent and additive
 
--- Add firebase_uid column to users table
-ALTER TABLE users ADD COLUMN firebase_uid text UNIQUE;
+DO $$
+BEGIN
+  -- Add firebase_uid column if it doesn't exist
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'users' AND column_name = 'firebase_uid'
+  ) THEN
+    ALTER TABLE users ADD COLUMN firebase_uid text UNIQUE;
+  END IF;
+END
+$$;
 
 -- Add partial unique index on email (lowercase, where not null)
-CREATE UNIQUE INDEX users_email_unique_lower ON users (lower(email)) WHERE email IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique_lower ON users (lower(email)) WHERE email IS NOT NULL;
 
--- Backfill firebase_uid for existing Google users (if any)
-UPDATE users SET firebase_uid = provider_subject WHERE auth_provider = 'google' AND provider_subject IS NOT NULL;
+-- Note: Backfill of firebase_uid from provider_subject moved to migration 0010
+-- since auth_provider and provider_subject columns don't exist at this point.

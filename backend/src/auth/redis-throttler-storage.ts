@@ -34,3 +34,13 @@ export const redisStorageFactory = async (config: ConfigService) => {
 
   return new RedisThrottlerStorage(redis);
 };
+
+/**
+ * Provider for Redis throttler storage.
+ * Use in modules' providers array to make REDIS_THROTTLER_STORAGE available.
+ */
+export const redisThrottlerStorageProvider = {
+  provide: REDIS_THROTTLER_STORAGE,
+  useFactory: redisStorageFactory,
+  inject: [ConfigService],
+};

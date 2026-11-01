@@ -4,18 +4,29 @@ import { Db } from '../src/db/db';
 import { UsersService } from '../src/users/users.service';
 import { PushService } from '../src/notifications/push.service';
 import { PgBossService } from '../src/pg-boss/pg-boss.service';
+import { AuthService } from '../src/auth/auth.service';
+import { JwtAuthGuard } from '../src/auth/jwt-auth.guard';
 
 describe('DI Setup (e2e)', () => {
   let module: TestingModule;
 
   beforeAll(async () => {
+    // Create a minimal test module without the DI complexity
+    // Mock AuthService and JwtAuthGuard to avoid Firebase initialization
     module = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(AuthService)
+      .useValue({})
+      .overrideProvider(JwtAuthGuard)
+      .useValue({ canActivate: jest.fn().mockReturnValue(true) })
+      .compile();
   });
 
   afterAll(async () => {
-    await module.close();
+    if (module) {
+      await module.close();
+    }
   });
 
   it('should provide a single Db instance across modules', () => {

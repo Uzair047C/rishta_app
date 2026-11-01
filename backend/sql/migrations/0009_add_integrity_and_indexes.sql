@@ -2,7 +2,7 @@
 -- This migration:
 -- 1. Adds unmatched_by to matches, CHECK on likes_remaining_today
 -- 2. Adds likes(to_user_id, created_at DESC) index for "who liked me"
--- 3. Enables PostGIS, adds users.geo geography(Point,4326) with trigger and GiST index
+-- 3. Enables PostGIS, adds users.geo geography(Point,4326) with trigger and GiST index (if PostGIS available)
 -- 4. Adds webhook_events table (if not already exists from 0006)
 
 -- 1. matches: add unmatched_by column
@@ -25,45 +25,49 @@ END $$;
 -- 3. likes index for "who liked me" queries
 CREATE INDEX IF NOT EXISTS likes_to_user_created_idx ON likes (to_user_id, created_at DESC);
 
--- 4. Enable PostGIS and add users.geo
-CREATE EXTENSION IF NOT EXISTS postgis;
-
--- Add geo column if not exists
+-- 4. Enable PostGIS and add users.geo (only if PostGIS extension is available)
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'users' AND column_name = 'geo'
-  ) THEN
-    ALTER TABLE users ADD COLUMN geo geography(Point, 4326);
+  IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'postgis') THEN
+    CREATE EXTENSION IF NOT EXISTS postgis;
+
+    -- Add geo column if not exists
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'users' AND column_name = 'geo'
+    ) THEN
+      ALTER TABLE users ADD COLUMN geo geography(Point, 4326);
+    END IF;
+
+    -- Create trigger function to populate geo from lat/lng
+    CREATE OR REPLACE FUNCTION update_user_geo() RETURNS trigger AS $$
+    BEGIN
+      IF NEW.lat IS NOT NULL AND NEW.lng IS NOT NULL THEN
+        NEW.geo := ST_SetSRID(ST_MakePoint(NEW.lng, NEW.lat), 4326)::geography;
+      ELSE
+        NEW.geo := NULL;
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    -- Drop existing trigger if any, then create new one
+    DROP TRIGGER IF EXISTS users_geo_update ON users;
+    CREATE TRIGGER users_geo_update
+      BEFORE INSERT OR UPDATE OF lat, lng ON users
+      FOR EACH ROW EXECUTE FUNCTION update_user_geo();
+
+    -- Backfill existing rows
+    UPDATE users
+    SET geo = ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography
+    WHERE lat IS NOT NULL AND lng IS NOT NULL AND geo IS NULL;
+
+    -- GiST index on geo for spatial queries
+    CREATE INDEX IF NOT EXISTS users_geo_idx ON users USING GIST (geo);
+  ELSE
+    RAISE NOTICE 'PostGIS not available, skipping geo column and spatial indexes';
   END IF;
 END $$;
-
--- Create trigger function to populate geo from lat/lng
-CREATE OR REPLACE FUNCTION update_user_geo() RETURNS trigger AS $$
-BEGIN
-  IF NEW.lat IS NOT NULL AND NEW.lng IS NOT NULL THEN
-    NEW.geo := ST_SetSRID(ST_MakePoint(NEW.lng, NEW.lat), 4326)::geography;
-  ELSE
-    NEW.geo := NULL;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Drop existing trigger if any, then create new one
-DROP TRIGGER IF EXISTS users_geo_update ON users;
-CREATE TRIGGER users_geo_update
-  BEFORE INSERT OR UPDATE OF lat, lng ON users
-  FOR EACH ROW EXECUTE FUNCTION update_user_geo();
-
--- Backfill existing rows
-UPDATE users
-SET geo = ST_SetSRID(ST_MakePoint(lng, lat), 4326)::geography
-WHERE lat IS NOT NULL AND lng IS NOT NULL AND geo IS NULL;
-
--- GiST index on geo for spatial queries
-CREATE INDEX IF NOT EXISTS users_geo_idx ON users USING GIST (geo);
 
 -- 5. webhook_events table (idempotency for webhooks) - created in 0006, ensure it exists
 CREATE TABLE IF NOT EXISTS webhook_events (

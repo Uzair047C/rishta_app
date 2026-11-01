@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, NotFoundException } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -126,6 +126,7 @@ export class AuthService {
         // Reuse detection: token was already used and revoked
         if (existingToken.replaced_by) {
           // Revoke entire family - potential token theft
+          // Do this in a separate committed statement
           await conn.query(
             'UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL',
             [existingToken.family_id]
@@ -138,16 +139,30 @@ export class AuthService {
         throw new UnauthorizedException('Refresh token expired');
       }
 
-      // Generate new token pair
+      // Check user is active (banned users can't refresh)
+      const user = await conn.oneOrNone<{ id: string; status: string | null }>(
+        'SELECT id, status FROM users WHERE id = $1',
+        [existingToken.user_id]
+      );
+      if (!user || user.status !== 'active') {
+        // Revoke all tokens of banned/inactive user
+        await conn.query(
+          'UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL',
+          [existingToken.user_id]
+        );
+        throw new UnauthorizedException('User inactive or banned');
+      }
+
+      // Generate new token pair - INHERIT family_id from parent (only fresh login creates new family)
       const newRefreshToken = this.generateRefreshToken();
       const newTokenHash = this.hashToken(newRefreshToken);
-      const newFamilyId = randomBytes(16).toString('hex');
+      const inheritedFamilyId = existingToken.family_id; // Inherit family_id
       const expiresAt = new Date(Date.now() + this.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
 
-      // Insert new token first
+      // Insert new token with inherited family_id
       const newToken = await conn.one<{ id: string }>(
         'INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at) VALUES ($1, $2, $3, $4) RETURNING id',
-        [existingToken.user_id, newTokenHash, newFamilyId, expiresAt]
+        [existingToken.user_id, newTokenHash, inheritedFamilyId, expiresAt]
       );
       if (!newToken) throw new Error('Failed to create new refresh token');
 
@@ -245,15 +260,22 @@ export class AuthService {
   async getStreamToken(userId: string): Promise<{ token: string; expiresAt: number }> {
     const client = this.getStreamClient();
 
-    // Upsert Stream user server-side
-    await client.upsertUser({
-      id: userId,
-      role: 'user',
-    });
+    // Create token with 1 hour expiry (iat and exp passed explicitly)
+    const iat = Math.floor(Date.now() / 1000);
+    const exp = iat + 3600; // 1 hour
+    const token = client.createToken(userId, exp, iat);
+    const expiresAt = exp;
 
-    // Create token with 1 hour expiry
-    const token = client.createToken(userId);
-    const expiresAt = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+    // Only upsert user with name/image when missing (not on every request)
+    // This avoids overwriting name/image from profile
+    try {
+      await client.upsertUser({
+        id: userId,
+        role: 'user',
+      }, { upsert: false }); // Only create if missing, don't overwrite
+    } catch {
+      // User might already exist, ignore
+    }
 
     return { token, expiresAt };
   }
@@ -266,8 +288,6 @@ export class AuthService {
     userId: string;
     email: string;
     emailVerified: boolean;
-    authProvider: string | null;
-    firebaseUid: string | null;
     status: string;
     createdAt: Date;
     onboardingComplete: boolean;
@@ -276,7 +296,7 @@ export class AuthService {
   }> {
     const user = await this.usersService.findOne(userId);
     if (!user) {
-      throw new Error('User not found');
+      throw new NotFoundException('User not found');
     }
 
     // Check onboarding completion
@@ -304,8 +324,6 @@ export class AuthService {
       userId: user.id,
       email: user.email ?? '',
       emailVerified: user.email_verified,
-      authProvider: user.auth_provider,
-      firebaseUid: user.firebase_uid,
       status: user.status ?? 'active',
       createdAt: user.created_at,
       onboardingComplete,

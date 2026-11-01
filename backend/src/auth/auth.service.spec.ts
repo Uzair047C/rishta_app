@@ -225,15 +225,20 @@ describe('AuthService', () => {
     it('should return new accessToken and refreshToken for valid refresh token', async () => {
       const mockTxDb: ExtendedQueryable = {
         query: jest.fn().mockResolvedValue({ rows: [], rowCount: 1 }),
-        oneOrNone: jest.fn().mockResolvedValue({
-          id: 'token-id',
-          user_id: mockUser.id,
-          token_hash: 'hash',
-          expires_at: new Date(Date.now() + 86400000),
-          revoked_at: null,
-          family_id: 'family-123',
-          replaced_by: null,
-        }),
+        oneOrNone: jest.fn()
+          .mockResolvedValueOnce({ // First call: refresh token lookup
+            id: 'token-id',
+            user_id: mockUser.id,
+            token_hash: 'hash',
+            expires_at: new Date(Date.now() + 86400000),
+            revoked_at: null,
+            family_id: 'family-123',
+            replaced_by: null,
+          })
+          .mockResolvedValueOnce({ // Second call: user status check
+            id: mockUser.id,
+            status: 'active',
+          }),
         one: jest.fn().mockResolvedValue({ id: 'new-token-id' }),
         all: jest.fn(),
         count: jest.fn(),
