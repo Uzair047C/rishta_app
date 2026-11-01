@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD, APP_FILTER } from '@nestjs/core';
 
 import { DbModule } from './db/db.module';
@@ -22,12 +22,11 @@ import { AdminController, AdminGuard } from './moderation/admin.controller';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { PostgresExceptionFilter } from './common/postgres-exception.filter';
-import { throttlerKeyGenerator } from './auth/throttler-options';
 import { PhotosModule } from './photos/photos.module';
 import { PgBossModule } from './pg-boss/pg-boss.module';
 import { AccountController } from './account/account.controller';
 import { validateConfig } from './config/validation';
-import { REDIS_THROTTLER_STORAGE } from './auth/redis-throttler-storage';
+import { ThrottlerConfigModule } from './auth/throttler.module';
 
 @Module({
   imports: [
@@ -35,20 +34,7 @@ import { REDIS_THROTTLER_STORAGE } from './auth/redis-throttler-storage';
       isGlobal: true,
       validate: validateConfig,
     }),
-    // Spec 2.1 — global baseline; auth, like and report routes tighten it locally
-    // with @Throttle.
-    ThrottlerModule.forRootAsync({
-      useFactory: (redisStorage: any) => ({
-        throttlers: [
-          { name: 'default', ttl: 60_000, limit: 100 },
-        ],
-        // Key by user ID when authenticated, otherwise by IP
-        getTracker: throttlerKeyGenerator,
-        // Use Redis storage when REDIS_URL is configured
-        ...(redisStorage ? { storage: redisStorage } : {}),
-      }),
-      inject: [REDIS_THROTTLER_STORAGE],
-    }),
+    ThrottlerConfigModule,
     DbModule,
     UsersModule,
     NotificationsModule,
@@ -74,9 +60,6 @@ import { REDIS_THROTTLER_STORAGE } from './auth/redis-throttler-storage';
     SubscriptionService,
     ModerationService,
     AdminGuard,
-    // Order matters: throttle before token verification, so an unauthenticated
-    // flood is rejected by the cheaper check.
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_FILTER, useClass: PostgresExceptionFilter },
   ],

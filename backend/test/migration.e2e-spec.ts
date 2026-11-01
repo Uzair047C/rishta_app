@@ -1,8 +1,8 @@
 import { Pool } from 'pg';
 import { query, truncateAll } from './e2e-setup';
 
-// node-pg-migrate is CommonJS, use require
-const migrate = require('node-pg-migrate').default;
+// node-pg-migrate v9+ - use dynamic import for ESM module
+const { runner } = await import('node-pg-migrate/dist/legacy/runner.js');
 
 describe('Database migrations (e2e)', () => {
   let testPool: Pool;
@@ -30,7 +30,7 @@ describe('Database migrations (e2e)', () => {
 
   it('should apply all migrations from empty database', async () => {
     // Run migrations using node-pg-migrate programmatically
-    await migrate({
+    await runner({
       direction: 'up',
       databaseUrl: process.env.DATABASE_URL_TEST ||
         (process.env.DATABASE_URL?.replace(/\/([^/]+)$/, '/$1_test')),

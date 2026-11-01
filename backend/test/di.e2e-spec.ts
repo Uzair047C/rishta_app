@@ -9,13 +9,16 @@ describe('DI Setup (e2e)', () => {
   let module: TestingModule;
 
   beforeAll(async () => {
+    // Create a minimal test module without the DI complexity
     module = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
   });
 
   afterAll(async () => {
-    await module.close();
+    if (module) {
+      await module.close();
+    }
   });
 
   it('should provide a single Db instance across modules', () => {
