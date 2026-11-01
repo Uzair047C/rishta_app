@@ -13,6 +13,6 @@ export const PG_BOSS_SERVICE = 'PG_BOSS_SERVICE';
     { provide: PG_BOSS_SERVICE, useExisting: PgBossService },
     OutboxWorker,
   ],
-  exports: [PG_BOSS_SERVICE, OutboxWorker],
+  exports: [PgBossService, PG_BOSS_SERVICE, OutboxWorker],
 })
 export class PgBossModule {}

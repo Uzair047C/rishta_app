@@ -7,8 +7,7 @@ import { DbModule } from './db/db.module';
 import { UsersModule } from './users/users.module';
 import { ProfileController } from './profile/profile.controller';
 import { ProfileService } from './profile/profile.service';
-import { VerificationController } from './verification/verification.controller';
-import { VerificationService } from './verification/verification.service';
+import { VerificationModule } from './verification/verification.module';
 import { FeedController } from './feed/feed.controller';
 import { FeedService } from './feed/feed.service';
 import { MatchesController } from './matches/matches.controller';
@@ -41,10 +40,10 @@ import { ThrottlerConfigModule } from './auth/throttler.module';
     AuthModule,
     PgBossModule,
     PhotosModule,
+    VerificationModule,
   ],
   controllers: [
     ProfileController,
-    VerificationController,
     FeedController,
     MatchesController,
     ReportsController,
@@ -55,7 +54,6 @@ import { ThrottlerConfigModule } from './auth/throttler.module';
   ],
   providers: [
     ProfileService,
-    VerificationService,
     FeedService,
     SubscriptionService,
     ModerationService,

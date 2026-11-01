@@ -1,23 +1,35 @@
 import { testPool, truncateAll, query } from './e2e-setup';
 import { Db } from '../src/db/db';
 import { Pool } from 'pg';
+import { runner } from './migration-runner';
 
 describe('Repo column allowlist (e2e)', () => {
   let db: Db;
+  let pool: Pool;
 
   beforeAll(async () => {
-    await truncateAll();
-    // Create a test pool directly
-    const pool = new Pool({
-      connectionString: process.env.DATABASE_URL_TEST || process.env.DATABASE_URL?.replace(/\/([^/]+)$/, '/$1_test') || '',
+    // Create a test pool for rishta_test_test database
+    pool = new Pool({
+      connectionString: 'postgres://postgres:postgres@localhost:5432/rishta_test_test',
       max: 5,
     });
+
+    // Run migrations on this database
+    await runner({
+      direction: 'up',
+      databaseUrl: 'postgres://postgres:postgres@localhost:5432/rishta_test_test',
+      dir: 'sql/migrations',
+      migrationsTable: 'pgmigrations',
+      log: () => {},
+    });
+
+    await truncateAll();
     db = new Db(pool);
   });
 
   afterAll(async () => {
     await db.onModuleDestroy();
-    await truncateAll();
+    await pool.end();
   });
 
   beforeEach(async () => {

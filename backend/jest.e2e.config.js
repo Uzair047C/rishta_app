@@ -13,6 +13,6 @@ module.exports = {
   testTimeout: 30000,
   maxWorkers: 1, // Run e2e tests sequentially to avoid DB conflicts
   transformIgnorePatterns: [
-    'node_modules/(?!(@nestjs|@nestjs-redis|google-auth-library|firebase-admin|jose|jwks-rsa|pg-boss)/)',
+    'node_modules/(?!(@nestjs|@nestjs-redis|google-auth-library|firebase-admin|jose|jwks-rsa|pg-boss|node-pg-migrate)/)',
   ],
 };

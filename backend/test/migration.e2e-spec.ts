@@ -1,8 +1,6 @@
 import { Pool } from 'pg';
 import { query, truncateAll } from './e2e-setup';
-
-// node-pg-migrate v9+ - use dynamic import for ESM module
-const { runner } = await import('node-pg-migrate/dist/legacy/runner.js');
+import { runner } from './migration-runner';
 
 describe('Database migrations (e2e)', () => {
   let testPool: Pool;
@@ -10,7 +8,8 @@ describe('Database migrations (e2e)', () => {
   beforeAll(async () => {
     // Create a fresh test database connection
     const testDbUrl = process.env.DATABASE_URL_TEST ||
-      (process.env.DATABASE_URL?.replace(/\/([^/]+)$/, '/$1_test'));
+      (process.env.DATABASE_URL?.replace(/\/([^/]+)$/, '/$1_test')) ||
+      'postgres://postgres:postgres@localhost:5432/rishta_test';
     testPool = new Pool({ connectionString: testDbUrl, max: 5 });
 
     // Clean slate - drop all tables to simulate empty DB
@@ -33,10 +32,10 @@ describe('Database migrations (e2e)', () => {
     await runner({
       direction: 'up',
       databaseUrl: process.env.DATABASE_URL_TEST ||
-        (process.env.DATABASE_URL?.replace(/\/([^/]+)$/, '/$1_test')),
-      migrationsDir: 'sql/migrations',
+        (process.env.DATABASE_URL?.replace(/\/([^/]+)$/, '/$1_test')) ||
+        'postgres://postgres:postgres@localhost:5432/rishta_test',
+      dir: 'sql/migrations',
       migrationsTable: 'pgmigrations',
-      driver: 'pg',
       log: () => {}, // silence logs
     });
 
