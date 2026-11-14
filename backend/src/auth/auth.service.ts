@@ -103,86 +103,130 @@ export class AuthService {
     const tokenHash = this.hashToken(refreshToken);
 
     // Atomic rotation with reuse detection in single transaction
-    return this.db.tx(async (conn) => {
-      // Look up token by hash directly (O(1) with unique index)
-      const existingToken = await conn.oneOrNone<{
-        id: string;
-        user_id: string;
-        token_hash: string;
-        expires_at: Date;
-        revoked_at: Date | null;
-        family_id: string;
-        replaced_by: string | null;
-      }>(
-        'SELECT id, user_id, token_hash, expires_at, revoked_at, family_id, replaced_by FROM refresh_tokens WHERE token_hash = $1',
-        [tokenHash]
-      );
-
-      if (!existingToken) {
-        throw new UnauthorizedException('Invalid or expired refresh token');
-      }
-
-      if (existingToken.revoked_at) {
-        // Reuse detection: token was already used and revoked
-        if (existingToken.replaced_by) {
-          // Revoke entire family - potential token theft
-          // Do this in a separate committed statement
-          await conn.query(
-            'UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL',
-            [existingToken.family_id]
-          );
-        }
-        throw new UnauthorizedException('Token reuse detected - session revoked');
-      }
-
-      if (existingToken.expires_at < new Date()) {
-        throw new UnauthorizedException('Refresh token expired');
-      }
-
-      // Check user is active (banned users can't refresh)
-      const user = await conn.oneOrNone<{ id: string; status: string | null }>(
-        'SELECT id, status FROM users WHERE id = $1',
-        [existingToken.user_id]
-      );
-      if (!user || user.status !== 'active') {
-        // Revoke all tokens of banned/inactive user
-        await conn.query(
-          'UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL',
-          [existingToken.user_id]
-        );
-        throw new UnauthorizedException('User inactive or banned');
-      }
-
-      // Generate new token pair - INHERIT family_id from parent (only fresh login creates new family)
+    // Returns { userId, familyId, isReuse, isBanned, newRefreshToken } for post-commit actions
+    const result = await this.db.tx(async (conn) => {
+      // Atomic rotation: revoke old and insert new in one statement
       const newRefreshToken = this.generateRefreshToken();
       const newTokenHash = this.hashToken(newRefreshToken);
-      const inheritedFamilyId = existingToken.family_id; // Inherit family_id
       const expiresAt = new Date(Date.now() + this.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
 
-      // Insert new token with inherited family_id
-      const newToken = await conn.one<{ id: string }>(
-        'INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at) VALUES ($1, $2, $3, $4) RETURNING id',
-        [existingToken.user_id, newTokenHash, inheritedFamilyId, expiresAt]
-      );
-      if (!newToken) throw new Error('Failed to create new refresh token');
+      const rotationResult = await conn.oneOrNone<{
+        id: string;
+        user_id: string;
+        family_id: string;
+        replaced_by: string | null;
+        revoked_at: Date | null;
+        expires_at: Date;
+        user_status: string | null;
+      }>(`
+        WITH rotated AS (
+          UPDATE refresh_tokens
+          SET revoked_at = now(), replaced_by = new_token.id
+          FROM (
+            INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at)
+            SELECT user_id, $2, family_id, $3
+            FROM refresh_tokens
+            WHERE token_hash = $1
+              AND revoked_at IS NULL
+              AND expires_at > now()
+            RETURNING id, user_id, family_id
+          ) new_token
+          WHERE refresh_tokens.id = new_token.id
+          RETURNING refresh_tokens.id, refresh_tokens.user_id, refresh_tokens.family_id,
+                    refresh_tokens.replaced_by, refresh_tokens.revoked_at, refresh_tokens.expires_at
+        )
+        SELECT r.id, r.user_id, r.family_id, r.replaced_by, r.revoked_at, r.expires_at, u.status AS user_status
+        FROM rotated r
+        JOIN users u ON u.id = r.user_id
+      `, [tokenHash, newTokenHash, expiresAt]);
 
-      // Revoke old token and link to new one
-      await conn.query(
-        'UPDATE refresh_tokens SET revoked_at = now(), replaced_by = $1 WHERE id = $2',
-        [newToken.id, existingToken.id]
-      );
+      if (!rotationResult) {
+        // No row updated - either token not found, already revoked, or expired
+        // Need to check which case for proper error
+        const existingToken = await conn.oneOrNone<{
+          id: string;
+          user_id: string;
+          family_id: string;
+          revoked_at: Date | null;
+          expires_at: Date;
+          replaced_by: string | null;
+        }>(
+          'SELECT id, user_id, family_id, revoked_at, expires_at, replaced_by FROM refresh_tokens WHERE token_hash = $1',
+          [tokenHash]
+        );
 
-      // Issue new access token
-      const jwtSecret = this.configService.get<string>('JWT_SECRET')!;
-      const accessToken = this.jwtService.sign({ userId: existingToken.user_id }, {
-        secret: jwtSecret,
-        expiresIn: `${this.ACCESS_TOKEN_TTL_MINUTES}m`,
-        issuer: this.configService.get<string>('JWT_ISSUER') ?? 'rishta-api',
-        audience: this.configService.get<string>('JWT_AUDIENCE') ?? 'rishta-app',
-      });
+        if (!existingToken) {
+          return { error: 'invalid', userId: null, familyId: null, isReuse: false, isBanned: false };
+        }
 
-      return { accessToken, refreshToken: newRefreshToken };
+        if (existingToken.revoked_at) {
+          if (existingToken.replaced_by) {
+            // Reuse detected - revoke family
+            return { error: 'reuse', userId: existingToken.user_id, familyId: existingToken.family_id, isReuse: true, isBanned: false };
+          }
+          return { error: 'revoked', userId: existingToken.user_id, familyId: existingToken.family_id, isReuse: false, isBanned: false };
+        }
+
+        if (existingToken.expires_at < new Date()) {
+          return { error: 'expired', userId: existingToken.user_id, familyId: existingToken.family_id, isReuse: false, isBanned: false };
+        }
+
+        // Check user status
+        const user = await conn.oneOrNone<{ id: string; status: string | null }>(
+          'SELECT id, status FROM users WHERE id = $1',
+          [existingToken.user_id]
+        );
+        if (!user || user.status !== 'active') {
+          return { error: 'banned', userId: existingToken.user_id, familyId: existingToken.family_id, isReuse: false, isBanned: true };
+        }
+
+        return { error: 'unknown', userId: null, familyId: null, isReuse: false, isBanned: false };
+      }
+
+      // Valid rotation - check user status
+      if (!rotationResult.user_status || rotationResult.user_status !== 'active') {
+        return { error: 'banned', userId: rotationResult.user_id, familyId: rotationResult.family_id, isReuse: false, isBanned: true };
+      }
+
+      // Success - return data for post-commit actions
+      return {
+        error: null,
+        userId: rotationResult.user_id,
+        familyId: rotationResult.family_id,
+        isReuse: false,
+        isBanned: false,
+        newRefreshToken,
+        accessToken: this.jwtService.sign({ userId: rotationResult.user_id }, {
+          secret: this.configService.get<string>('JWT_SECRET')!,
+          expiresIn: `${this.ACCESS_TOKEN_TTL_MINUTES}m`,
+          issuer: this.configService.get<string>('JWT_ISSUER') ?? 'rishta-api',
+          audience: this.configService.get<string>('JWT_AUDIENCE') ?? 'rishta-app',
+        }),
+      };
     });
+
+    // Post-commit error handling
+    if (result.error === 'invalid' || result.error === 'revoked' || result.error === 'expired') {
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+    if (result.error === 'reuse') {
+      // Revoke family after commit
+      await this.db.query(
+        'UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL',
+        [result.familyId]
+      );
+      throw new UnauthorizedException('Token reuse detected - session revoked');
+    }
+    if (result.error === 'banned') {
+      // Revoke all user tokens after commit
+      await this.db.query(
+        'UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL',
+        [result.userId]
+      );
+      throw new UnauthorizedException('User inactive or banned');
+    }
+
+    return { accessToken: result.accessToken!, refreshToken: result.newRefreshToken! };
   }
 
   private async issueTokenPair(userId: string): Promise<{ accessToken: string; refreshToken: string }> {

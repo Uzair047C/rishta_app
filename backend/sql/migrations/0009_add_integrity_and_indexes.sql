@@ -26,7 +26,7 @@ END $$;
 CREATE INDEX IF NOT EXISTS likes_to_user_created_idx ON likes (to_user_id, created_at DESC);
 
 -- 4. Enable PostGIS and add users.geo (only if PostGIS extension is available)
-DO $$
+DO $migration_0009_outer$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'postgis') THEN
     CREATE EXTENSION IF NOT EXISTS postgis;
@@ -40,7 +40,7 @@ BEGIN
     END IF;
 
     -- Create trigger function to populate geo from lat/lng
-    CREATE OR REPLACE FUNCTION update_user_geo() RETURNS trigger AS $$
+    CREATE OR REPLACE FUNCTION update_user_geo() RETURNS trigger AS $migration_0009_inner$
     BEGIN
       IF NEW.lat IS NOT NULL AND NEW.lng IS NOT NULL THEN
         NEW.geo := ST_SetSRID(ST_MakePoint(NEW.lng, NEW.lat), 4326)::geography;
@@ -49,7 +49,7 @@ BEGIN
       END IF;
       RETURN NEW;
     END;
-    $$ LANGUAGE plpgsql;
+    $migration_0009_inner$ LANGUAGE plpgsql;
 
     -- Drop existing trigger if any, then create new one
     DROP TRIGGER IF EXISTS users_geo_update ON users;
@@ -67,7 +67,7 @@ BEGIN
   ELSE
     RAISE NOTICE 'PostGIS not available, skipping geo column and spatial indexes';
   END IF;
-END $$;
+END $migration_0009_outer$;
 
 -- 5. webhook_events table (idempotency for webhooks) - created in 0006, ensure it exists
 CREATE TABLE IF NOT EXISTS webhook_events (
