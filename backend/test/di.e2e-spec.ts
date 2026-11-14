@@ -12,7 +12,7 @@ describe('DI Setup (e2e)', () => {
 
   beforeAll(async () => {
     // Create a minimal test module without the DI complexity
-    // Mock AuthService and JwtAuthGuard to avoid Firebase initialization
+    // Mock AuthService and JwtAuthGuard to avoid external token verification
     module = await Test.createTestingModule({
       imports: [AppModule],
     })

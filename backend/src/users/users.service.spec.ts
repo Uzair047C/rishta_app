@@ -19,10 +19,10 @@ describe('UsersService', () => {
     lat: null,
     lng: null,
     device_id: null,
-    auth_provider: 'firebase',
-    provider_subject: 'firebase-uid-123',
+    auth_provider: 'google',
+    provider_subject: 'google-sub-123',
     email_verified: true,
-    firebase_uid: 'firebase-uid-123',
+    firebase_uid: null,
     status: 'active',
     is_admin: false,
     created_at: new Date(),
@@ -53,94 +53,82 @@ describe('UsersService', () => {
     jest.clearAllMocks();
   });
 
-  describe('findOrCreateByFirebaseUid', () => {
-    it('should return existing user when Firebase UID matches', async () => {
-      db.oneOrNone
-        .mockResolvedValueOnce(mockUser); // First call: find by Firebase UID
+  describe('findOrCreateByGoogleId', () => {
+    it('looks up an existing account by Google provider subject', async () => {
+      const googleUser = { ...mockUser, auth_provider: 'google', provider_subject: 'google-sub-123' };
+      db.oneOrNone.mockResolvedValueOnce(googleUser);
 
-      const result = await service.findOrCreateByFirebaseUid('firebase-uid-123', 'test@example.com', undefined, true);
+      const result = await service.findOrCreateByGoogleId('google-sub-123', 'test@example.com', true);
 
-      expect(result).toEqual(mockUser);
-      expect(db.oneOrNone).toHaveBeenCalledTimes(1);
-      // Should not call UPDATE since email_verified is already true
+      expect(result).toEqual(googleUser);
+      expect(db.oneOrNone).toHaveBeenCalledWith(
+        'SELECT * FROM users WHERE auth_provider = $1 AND provider_subject = $2',
+        ['google', 'google-sub-123']
+      );
       expect(db.query).not.toHaveBeenCalled();
     });
 
-    it('should update email_verified when Firebase says verified and user is not verified', async () => {
-      const userNotVerified = { ...mockUser, email_verified: false };
-      db.oneOrNone.mockResolvedValueOnce(userNotVerified);
+    it('links Google identity to an existing verified legacy account', async () => {
+      const legacyUser = {
+        ...mockUser,
+        auth_provider: 'firebase',
+        provider_subject: 'legacy-firebase-uid',
+        firebase_uid: 'legacy-firebase-uid',
+        email_verified: true,
+      };
+      db.oneOrNone
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(legacyUser);
       db.query.mockResolvedValue({ rows: [], rowCount: 1 });
 
-      const result = await service.findOrCreateByFirebaseUid('firebase-uid-123', 'test@example.com', undefined, true);
+      const result = await service.findOrCreateByGoogleId('google-sub-456', 'test@example.com', true);
 
-      expect(result.email_verified).toBe(true);
       expect(db.query).toHaveBeenCalledWith(
-        'UPDATE users SET email_verified = true WHERE id = $1',
-        [mockUser.id]
+        expect.stringContaining("auth_provider = 'google'"),
+        [legacyUser.id, 'google-sub-456']
       );
+      expect(result.auth_provider).toBe('google');
+      expect(result.provider_subject).toBe('google-sub-456');
+      expect(result.firebase_uid).toBe('legacy-firebase-uid');
     });
 
-    it('should link Firebase account to existing user with same verified email and no firebase_uid', async () => {
-      const userWithoutProvider = { ...mockUser, firebase_uid: null, auth_provider: null, provider_subject: null, email_verified: true };
+    it('creates a new user with a Google provider subject', async () => {
+      const googleUser = { ...mockUser, auth_provider: 'google', provider_subject: 'google-sub-new', firebase_uid: null };
       db.oneOrNone
-        .mockResolvedValueOnce(null) // No Firebase UID match
-        .mockResolvedValueOnce(userWithoutProvider); // Find by email
-      db.query.mockResolvedValue({ rows: [], rowCount: 1 });
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null);
+      db.one.mockResolvedValue(googleUser);
 
-      const result = await service.findOrCreateByFirebaseUid('firebase-uid-456', 'test@example.com', undefined, true);
+      const result = await service.findOrCreateByGoogleId('google-sub-new', 'new@example.com', true);
 
-      expect(result.firebase_uid).toBe('firebase-uid-456');
-      expect(result.email_verified).toBe(true);
-      expect(db.query).toHaveBeenCalledWith(
-        expect.stringContaining('UPDATE users SET'),
-        [userWithoutProvider.id, 'firebase-uid-456']
-      );
-    });
-
-    it('should throw conflict when email is linked to different firebase_uid', async () => {
-      const userWithDifferentProvider = { ...mockUser, firebase_uid: 'different-uid', auth_provider: 'firebase', provider_subject: 'different-uid', email_verified: true };
-      db.oneOrNone
-        .mockResolvedValueOnce(null) // No Firebase UID match
-        .mockResolvedValueOnce(userWithDifferentProvider); // Find by email
-
-      await expect(service.findOrCreateByFirebaseUid('firebase-uid-456', 'test@example.com', undefined, true))
-        .rejects.toThrow(ConflictException);
-    });
-
-    it('should create new user when no existing user found', async () => {
-      db.oneOrNone
-        .mockResolvedValueOnce(null) // No Firebase UID match
-        .mockResolvedValueOnce(null); // No email match
-      db.one.mockResolvedValue(mockUser);
-
-      const result = await service.findOrCreateByFirebaseUid('firebase-uid-new', 'new@example.com', 'John Doe', true);
-
-      expect(result).toEqual(mockUser);
+      expect(result).toEqual(googleUser);
       expect(db.one).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO users'),
-        expect.arrayContaining(['new@example.com', 'firebase-uid-new', true])
+        expect.arrayContaining(['new@example.com', 'google', 'google-sub-new', true])
       );
     });
 
-    it('should throw when email not provided', async () => {
-      await expect(service.findOrCreateByFirebaseUid('firebase-uid', '')).rejects.toThrow(ConflictException);
+    it('does not link a verified email already owned by a different provider', async () => {
+      const otherProviderUser = {
+        ...mockUser,
+        auth_provider: 'apple',
+        provider_subject: 'apple-sub-123',
+        email_verified: true,
+      };
+      db.oneOrNone
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(otherProviderUser);
+
+      await expect(service.findOrCreateByGoogleId('google-sub-456', 'test@example.com', true))
+        .rejects.toThrow(ConflictException);
+      expect(db.query).not.toHaveBeenCalled();
     });
 
-    it('should NOT link by email when emailVerified is false', async () => {
-      const userWithVerifiedEmail = { ...mockUser, firebase_uid: null, auth_provider: null, provider_subject: null, email_verified: true };
-      db.oneOrNone
-        .mockResolvedValueOnce(null) // No Firebase UID match
-        .mockResolvedValueOnce(userWithVerifiedEmail); // Find by email (but emailVerified=false, so should skip)
-
-      // When emailVerified=false, the function should NOT look up by email
-      // and should create a new user instead
-      db.one.mockResolvedValue(mockUser);
-
-      const result = await service.findOrCreateByFirebaseUid('firebase-uid-456', 'test@example.com', undefined, false);
-
-      expect(result).toEqual(mockUser);
-      // Should only call oneOrNone once (for firebase_uid lookup)
-      expect(db.oneOrNone).toHaveBeenCalledTimes(1);
+    it('refuses to create an account from an unverified email', async () => {
+      await expect(service.findOrCreateByGoogleId('google-sub-123', 'test@example.com', false))
+        .rejects.toThrow(ConflictException);
+      expect(db.oneOrNone).not.toHaveBeenCalled();
+      expect(db.one).not.toHaveBeenCalled();
     });
   });
 

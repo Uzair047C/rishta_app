@@ -6,7 +6,7 @@ The following credentials have been exposed in the working tree and/or git histo
 
 | Credential | Location found | Action required |
 |------------|----------------|-----------------|
-| **Firebase Service Account** (project ID, client email, private key) | `backend/.env`, git history | Generate new service account in Firebase Console → Project Settings → Service Accounts. Update `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` in all environments. |
+| **Legacy Firebase Service Account** (project ID, client email, private key) | `backend/.env`, git history | Firebase authentication has been removed. Revoke/delete the exposed service account and remove its credentials from all environments; the historical exposure still requires cleanup. |
 | **Stream Chat Secret** | `backend/.env`, git history | Rotate in Stream Dashboard → Keys → Regenerate secret. Update `STREAM_API_SECRET`. |
 | **JWT Secret** | `backend/.env`, git history | Generate new 64+ char random string. Update `JWT_SECRET` everywhere. All existing access/refresh tokens will be invalidated. |
 | **Database Password** | `backend/.env`, git history | Rotate PostgreSQL user password. Update `DATABASE_URL`. |

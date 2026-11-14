@@ -70,9 +70,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://rishta:rishta@localhost:5432/rishta_test
           JWT_SECRET: test-secret-min-32-chars-long
-          FIREBASE_PROJECT_ID: test-project
-          FIREBASE_CLIENT_EMAIL: test@test-project.iam.gserviceaccount.com
-          FIREBASE_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDtest\n-----END PRIVATE KEY-----\n"
+          GOOGLE_CLIENT_IDS: test-google-client-id
           STREAM_API_KEY: test-key
           STREAM_API_SECRET: test-secret
         run: npm test

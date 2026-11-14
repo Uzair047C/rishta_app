@@ -11,11 +11,7 @@ process.env.DATABASE_URL_TEST = testDbBase + '_test';
 process.env.JWT_SECRET = 'test-secret-test-secret-test-secret-test-secret';
 process.env.JWT_ISSUER = 'rishta-api';
 process.env.JWT_AUDIENCE = 'rishta-app';
-process.env.FIREBASE_PROJECT_ID = 'test-project';
-process.env.FIREBASE_CLIENT_EMAIL = 'firebase-adminsdk@test-project.iam.gserviceaccount.com';
-// Use a simple test private key with literal \n escape sequences
-// The auth.service.ts will replace \\n with actual newlines
-process.env.FIREBASE_PRIVATE_KEY = '-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDc7wLZ3zZ3zZ3z\\nZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3z\\nAgMBAAECggEBAK4BQ1A7wLZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3zZ3\\n-----END PRIVATE KEY-----';
+process.env.GOOGLE_CLIENT_IDS = 'test-google-client-id';
 process.env.STREAM_API_KEY = 'test-key';
 process.env.STREAM_API_SECRET = 'test-secret';
 process.env.REVENUECAT_WEBHOOK_SECRET = 'test-secret';

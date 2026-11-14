@@ -35,9 +35,7 @@ npm test                      # jest (requires Postgres)
 | `JWT_REFRESH_TTL_DAYS` | Refresh token TTL (default 30) | |
 | `JWT_ISSUER` | JWT `iss` claim (default `rishta-api`) | |
 | `JWT_AUDIENCE` | JWT `aud` claim (default `rishta-app`) | |
-| `FIREBASE_PROJECT_ID` | Firebase project ID | ✅ |
-| `FIREBASE_CLIENT_EMAIL` | Firebase service account email | ✅ |
-| `FIREBASE_PRIVATE_KEY` | Firebase service account private key (with `\n`) | ✅ |
+| `GOOGLE_CLIENT_IDS` | Comma-separated Google OAuth client IDs accepted by `/auth/google` | ✅ |
 | `STREAM_API_KEY` | Stream Chat API key | ✅ |
 | `STREAM_API_SECRET` | Stream Chat API secret | ✅ |
 | `REVENUECAT_WEBHOOK_SECRET` | RevenueCat webhook signature secret | ✅ |

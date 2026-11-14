@@ -4,6 +4,14 @@ import { AuthService } from './auth.service';
 import { Public } from './public.decorator';
 import { CurrentUser } from './current-user.decorator';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { IsString, MaxLength, MinLength } from 'class-validator';
+
+class GoogleLoginDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(8192)
+  idToken!: string;
+}
 
 @Controller('auth')
 export class AuthController {
@@ -11,10 +19,10 @@ export class AuthController {
 
   // /auth/* 10/min/IP
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  @Post('firebase')
+  @Post('google')
   @Public()
-  async firebaseLogin(@Body() { idToken }: { idToken: string }) {
-    return this.authService.firebaseLogin(idToken);
+  async googleLogin(@Body() { idToken }: GoogleLoginDto) {
+    return this.authService.googleLogin(idToken);
   }
 
   // refresh 30/min/IP

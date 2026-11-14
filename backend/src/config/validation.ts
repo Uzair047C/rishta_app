@@ -22,15 +22,9 @@ export const appConfigSchema = Joi.object({
   JWT_ISSUER: Joi.string().default('rishta-api'),
   JWT_AUDIENCE: Joi.string().default('rishta-app'),
 
-  // Firebase
-  FIREBASE_PROJECT_ID: Joi.string().required().messages({
-    'any.required': 'FIREBASE_PROJECT_ID is required',
-  }),
-  FIREBASE_CLIENT_EMAIL: Joi.string().email().required().messages({
-    'any.required': 'FIREBASE_CLIENT_EMAIL is required',
-  }),
-  FIREBASE_PRIVATE_KEY: Joi.string().required().messages({
-    'any.required': 'FIREBASE_PRIVATE_KEY is required',
+  GOOGLE_CLIENT_IDS: Joi.string().trim().min(1).required().messages({
+    'string.min': 'GOOGLE_CLIENT_IDS must contain at least one OAuth client ID',
+    'any.required': 'GOOGLE_CLIENT_IDS is required',
   }),
 
   // Stream Chat

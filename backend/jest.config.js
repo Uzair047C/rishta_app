@@ -12,6 +12,6 @@ module.exports = {
     '^@/(.*)$': '<rootDir>/$1',
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(@nestjs|google-auth-library|firebase-admin|jose|jwks-rsa)/)',
+    'node_modules/(?!(@nestjs|google-auth-library|jose|jwks-rsa)/)',
   ],
 };

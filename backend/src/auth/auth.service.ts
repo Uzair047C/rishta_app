@@ -1,44 +1,22 @@
-import { Injectable, UnauthorizedException, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Db } from '../db/db';
 import { UserRow } from '../db/types';
-import { getAuth } from 'firebase-admin/auth';
-import { initializeApp, cert, getApps, App } from 'firebase-admin/app';
 import { createHash, randomBytes } from 'crypto';
+import { OAuth2Client } from 'google-auth-library';
 
 @Injectable()
 export class AuthService {
-  private readonly firebaseApp: App;
+  private readonly googleOAuthClient = new OAuth2Client();
 
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly db: Db,
-  ) {
-    // Initialize Firebase Admin SDK
-    this.firebaseApp = this.initializeFirebase();
-  }
-
-  private initializeFirebase(): App {
-    if (getApps().length > 0) {
-      return getApps()[0];
-    }
-
-    const projectId = this.configService.get<string>('FIREBASE_PROJECT_ID');
-    const clientEmail = this.configService.get<string>('FIREBASE_CLIENT_EMAIL');
-    const privateKey = this.configService.get<string>('FIREBASE_PRIVATE_KEY')?.replace(/\\n/g, '\n');
-
-    if (!projectId || !clientEmail || !privateKey) {
-      throw new Error('Firebase Admin credentials not configured (FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY)');
-    }
-
-    return initializeApp({
-      credential: cert({ projectId, clientEmail, privateKey }),
-    });
-  }
+  ) {}
 
   // Refresh token settings
   private readonly REFRESH_TOKEN_TTL_DAYS = 30;
@@ -49,32 +27,47 @@ export class AuthService {
     return createHash('sha256').update(token).digest('hex');
   }
 
-  async validateFirebaseIdToken(idToken: string): Promise<{ firebaseUid: string; email: string; emailVerified: boolean; name?: string }> {
-    try {
-      const decodedToken = await getAuth(this.firebaseApp).verifyIdToken(idToken, true);
+  async validateGoogleIdToken(idToken: string): Promise<{ googleId: string; email: string }> {
+    const audiences = this.configService.get<string>('GOOGLE_CLIENT_IDS')
+      ?.split(',')
+      .map((clientId) => clientId.trim())
+      .filter(Boolean);
 
-      return {
-        firebaseUid: decodedToken.uid,
-        email: decodedToken.email ?? '',
-        emailVerified: decodedToken.email_verified ?? false,
-        name: decodedToken.name ?? undefined,
-      };
+    if (!audiences?.length) {
+      throw new Error('GOOGLE_CLIENT_IDS is not configured');
+    }
+
+    try {
+      const ticket = await this.googleOAuthClient.verifyIdToken({
+        idToken,
+        audience: audiences,
+      });
+      const payload = ticket.getPayload();
+      if (!payload?.sub || !payload.email || payload.email_verified !== true) {
+        throw new UnauthorizedException('Google account must have a verified email');
+      }
+
+      return { googleId: payload.sub, email: payload.email };
     } catch (error) {
-      throw new UnauthorizedException('Invalid Firebase ID token');
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      throw new UnauthorizedException('Invalid Google ID token');
     }
   }
 
-  async firebaseLogin(idToken: string): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
-    const firebasePayload = await this.validateFirebaseIdToken(idToken);
-
-    // Find or create user by Firebase UID
-    const user = await this.usersService.findOrCreateByFirebaseUid(
-      firebasePayload.firebaseUid,
-      firebasePayload.email,
-      firebasePayload.name,
-      firebasePayload.emailVerified // Pass emailVerified
+  async googleLogin(idToken: string): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
+    const googlePayload = await this.validateGoogleIdToken(idToken);
+    const user = await this.usersService.findOrCreateByGoogleId(
+      googlePayload.googleId,
+      googlePayload.email,
+      true
     );
 
+    return this.createSessionForUser(user);
+  }
+
+  private async createSessionForUser(user: UserRow): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
     // Check if user has completed onboarding
     let profileComplete = false;
     try {

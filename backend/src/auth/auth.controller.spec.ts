@@ -16,8 +16,8 @@ describe('AuthController', () => {
     id: 'test-user-id',
     email: 'test@example.com',
     email_verified: true,
-    auth_provider: 'firebase',
-    firebase_uid: 'firebase-uid-123',
+    auth_provider: 'google',
+    firebase_uid: null,
     status: 'active',
     created_at: new Date(),
     phone: null,
@@ -28,13 +28,13 @@ describe('AuthController', () => {
     lat: null,
     lng: null,
     device_id: null,
-    provider_subject: null,
+    provider_subject: 'google-sub-123',
     is_admin: false,
   } as any;
 
   beforeEach(async () => {
     const mockAuthService = {
-      firebaseLogin: jest.fn(),
+      googleLogin: jest.fn(),
       refreshAccessToken: jest.fn(),
       logout: jest.fn(),
       validateUser: jest.fn(),
@@ -69,26 +69,26 @@ describe('AuthController', () => {
     jest.clearAllMocks();
   });
 
-  describe('firebaseLogin', () => {
-    it('should return tokens and user on valid Firebase ID token', async () => {
+  describe('googleLogin', () => {
+    it('should return tokens and user on valid Google ID token', async () => {
       const expected = {
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
         user: mockUser,
         profileComplete: false,
       };
-      authService.firebaseLogin.mockResolvedValue(expected);
+      authService.googleLogin.mockResolvedValue(expected);
 
-      const result = await controller.firebaseLogin({ idToken: 'valid-firebase-id-token' });
+      const result = await controller.googleLogin({ idToken: 'valid-google-id-token' });
 
       expect(result).toEqual(expected);
-      expect(authService.firebaseLogin).toHaveBeenCalledWith('valid-firebase-id-token');
+      expect(authService.googleLogin).toHaveBeenCalledWith('valid-google-id-token');
     });
 
     it('should propagate UnauthorizedException from service', async () => {
-      authService.firebaseLogin.mockRejectedValue(new UnauthorizedException('Invalid Firebase ID token'));
+      authService.googleLogin.mockRejectedValue(new UnauthorizedException('Invalid Google ID token'));
 
-      await expect(controller.firebaseLogin({ idToken: 'invalid-token' })).rejects.toThrow(UnauthorizedException);
+      await expect(controller.googleLogin({ idToken: 'invalid-token' })).rejects.toThrow(UnauthorizedException);
     });
   });
 

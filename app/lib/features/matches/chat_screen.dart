@@ -14,7 +14,7 @@ final streamClientProvider = FutureProvider<StreamChatClient>((ref) async {
   const apiKey = String.fromEnvironment('STREAM_API_KEY');
   if (apiKey.isEmpty) throw StateError('STREAM_API_KEY is not configured');
 
-  // The token is issued by our backend only after Firebase auth succeeds
+  // The token is issued by our backend only after Google auth succeeds
   // (spec 2.1); Stream never sees an unauthenticated user.
   final token = await api.get<String>('/auth/stream-token', (j) => '${(j as Map)['token']}');
   final me = await api.get<MyProfile>('/profile', (j) => MyProfile.fromJson(j as Map<String, dynamic>));
