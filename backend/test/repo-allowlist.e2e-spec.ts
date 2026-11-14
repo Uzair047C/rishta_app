@@ -1,4 +1,4 @@
-import { testPool, truncateAll, query } from './e2e-setup';
+import { truncateAll, query, resetTestDatabase } from './e2e-setup';
 import { Db } from '../src/db/db';
 import { Pool } from 'pg';
 import { runner } from './migration-runner';
@@ -8,13 +8,40 @@ describe('Repo column allowlist (e2e)', () => {
   let pool: Pool;
 
   beforeAll(async () => {
+    // AGGRESSIVE CLEANUP: Drop all tables in rishta_test_test
+    const cleanupPool = new Pool({
+      connectionString: 'postgres://postgres:postgres@localhost:5432/rishta_test_test',
+      max: 5,
+    });
+    try {
+      const tables = await cleanupPool.query(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+      );
+      for (const table of tables.rows) {
+        try {
+          await cleanupPool.query(`DROP TABLE IF EXISTS "${table.table_name}" CASCADE`);
+        } catch (err) {
+          // Ignore
+        }
+      }
+      try {
+        await cleanupPool.query('DROP TABLE IF EXISTS pgmigrations CASCADE');
+      } catch (err) {
+        // Ignore
+      }
+    } finally {
+      await cleanupPool.end();
+    }
+    await new Promise(r => setTimeout(r, 500));
+
     // Create a test pool for rishta_test_test database
     pool = new Pool({
       connectionString: 'postgres://postgres:postgres@localhost:5432/rishta_test_test',
       max: 5,
     });
 
-    // Run migrations on this database
+    // Reset database completely and run migrations
+    await resetTestDatabase('postgres://postgres:postgres@localhost:5432/rishta_test_test');
     await runner({
       direction: 'up',
       databaseUrl: 'postgres://postgres:postgres@localhost:5432/rishta_test_test',
@@ -23,7 +50,6 @@ describe('Repo column allowlist (e2e)', () => {
       log: () => {},
     });
 
-    await truncateAll();
     db = new Db(pool);
   });
 

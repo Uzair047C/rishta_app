@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { query, truncateAll } from './e2e-setup';
+import { query, truncateAll, resetTestDatabase } from './e2e-setup';
 import { runner } from './migration-runner';
 
 describe('Database migrations (e2e)', () => {
@@ -10,36 +10,52 @@ describe('Database migrations (e2e)', () => {
     const testDbUrl = process.env.DATABASE_URL_TEST ||
       (process.env.DATABASE_URL?.replace(/\/([^/]+)$/, '/$1_test')) ||
       'postgres://postgres:postgres@localhost:5432/rishta_test';
-    testPool = new Pool({ connectionString: testDbUrl, max: 5 });
 
-    // Clean slate - drop all tables to simulate empty DB
-    await truncateAll();
-
-    // Also drop migration tracking table to force re-run
+    // AGGRESSIVE CLEANUP: Drop all tables including pgmigrations
+    const cleanupPool = new Pool({ connectionString: testDbUrl, max: 5 });
     try {
-      await testPool.query(`DROP TABLE IF EXISTS pgmigrations CASCADE`);
-    } catch (err) {
-      // Ignore
+      const tables = await cleanupPool.query(
+        "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+      );
+      for (const table of tables.rows) {
+        try {
+          await cleanupPool.query(`DROP TABLE IF EXISTS "${table.table_name}" CASCADE`);
+        } catch (err) {
+          // Ignore
+        }
+      }
+      try {
+        await cleanupPool.query('DROP TABLE IF EXISTS pgmigrations CASCADE');
+      } catch (err) {
+        // Ignore
+      }
+    } finally {
+      await cleanupPool.end();
     }
-  });
+    await new Promise(r => setTimeout(r, 500));
 
-  afterAll(async () => {
-    await testPool.end();
-  });
-
-  it('should apply all migrations from empty database', async () => {
-    // Run migrations using node-pg-migrate programmatically
+    // Run migrations FIRST (before creating the pool)
     await runner({
       direction: 'up',
-      databaseUrl: process.env.DATABASE_URL_TEST ||
-        (process.env.DATABASE_URL?.replace(/\/([^/]+)$/, '/$1_test')) ||
-        'postgres://postgres:postgres@localhost:5432/rishta_test',
+      databaseUrl: testDbUrl,
       dir: 'sql/migrations',
       migrationsTable: 'pgmigrations',
       log: () => {}, // silence logs
     });
 
-    // Check that all 14 migrations were applied
+    // Small delay to ensure all connections see the new schema
+    await new Promise(r => setTimeout(r, 500));
+
+    // THEN create the pool (connections will be to the fresh schema with tables)
+    testPool = new Pool({ connectionString: testDbUrl, max: 5 });
+  });
+
+  afterAll(async () => {
+    if (testPool) await testPool.end();
+  });
+
+  it('should apply all migrations from empty database', async () => {
+    // Check that all 14 migrations were applied (already run in beforeAll)
     const { rows } = await testPool.query(`
       SELECT name FROM pgmigrations ORDER BY name
     `);

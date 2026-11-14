@@ -28,20 +28,26 @@ const testDbUrl = process.env.DATABASE_URL_TEST ||
   (process.env.DATABASE_URL?.replace(/\/([^/]+)$/, '/$1_test')) ||
   'postgres://postgres:postgres@localhost:5432/rishta_test';
 
-// Global pool for test database
-export const testPool = new Pool({
-  connectionString: testDbUrl,
-  max: 5,
-});
+// Global pool for test database - LAZY creation to avoid stale connections after schema reset
+let _testPool: Pool | null = null;
+function getTestPool(): Pool {
+  if (!_testPool) {
+    _testPool = new Pool({ connectionString: testDbUrl, max: 5 });
+  }
+  return _testPool;
+}
 
 // Clean up after all tests
 afterAll(async () => {
-  await testPool.end();
+  if (_testPool) {
+    await _testPool.end();
+    _testPool = null;
+  }
 });
 
 // Helper to run queries in tests
 export async function query(sql: string, params?: unknown[]) {
-  return testPool.query(sql, params);
+  return getTestPool().query(sql, params);
 }
 
 // Helper to truncate all tables (for test isolation)
@@ -53,11 +59,46 @@ export async function truncateAll() {
     'profile_photos', 'profiles', 'device_tokens', 'notification_preferences',
     'users', 'interests', 'languages'
   ];
+  const pool = getTestPool();
   for (const table of tables) {
     try {
-      await testPool.query(`TRUNCATE TABLE ${table} CASCADE`);
+      await pool.query(`TRUNCATE TABLE ${table} CASCADE`);
     } catch (err) {
       // Table might not exist, ignore
     }
   }
+}
+
+// Helper to completely reset a test database (drop schema, recreate, run migrations)
+export async function resetTestDatabase(dbUrl: string) {
+  // First, close the global test pool if it exists (it might have stale connections)
+  if (_testPool) {
+    await _testPool.end();
+    _testPool = null;
+  }
+
+  const resetPool = new Pool({ connectionString: dbUrl, max: 5 });
+  try {
+    // Drop all tables explicitly (more reliable than DROP SCHEMA)
+    const tables = await resetPool.query(
+      "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"
+    );
+    for (const table of tables.rows) {
+      try {
+        await resetPool.query(`DROP TABLE IF EXISTS "${table.table_name}" CASCADE`);
+      } catch (err) {
+        // Ignore
+      }
+    }
+    // Also drop pgmigrations if it exists
+    try {
+      await resetPool.query('DROP TABLE IF EXISTS pgmigrations CASCADE');
+    } catch (err) {
+      // Ignore
+    }
+  } finally {
+    await resetPool.end();
+  }
+  // Small delay to ensure schema changes are visible to new connections
+  await new Promise(r => setTimeout(r, 500));
 }
