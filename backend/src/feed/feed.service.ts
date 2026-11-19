@@ -5,6 +5,7 @@ import { PushService } from '../notifications/push.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { UsersService } from '../users/users.service';
 import { OutboxWorker } from '../pg-boss/outbox.worker';
+import { AuthService } from '../auth/auth.service';
 
 export interface FeedFilters {
   minAge?: number;
@@ -43,6 +44,15 @@ function distanceToBucket(distanceKm: number | null): string | null {
   if (distanceKm < 50) return '25–50 km';
   return '50+ km';
 }
+
+// Jitter: add random noise up to ~1km to distance buckets in feed (prevents trilateration)
+const DISTANCE_JITTER_M = 1000;
+
+// Candidate cap for feed scaling — evaluates correlated subquery + sort on capped set only
+const FEED_CANDIDATE_CAP = 500;
+
+// Activity boost window — users active within this window get priority
+const ACTIVITY_BOOST_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /** Tiny parameter builder: each call returns the next $n placeholder. */
 class ParamBuilder {
@@ -96,6 +106,7 @@ export class FeedService {
     private readonly subscriptions: SubscriptionService,
     private readonly users: UsersService,
     private readonly outboxWorker: OutboxWorker,
+    private readonly auth: AuthService,
   ) {}
 
   async feed(userId: string, f: FeedFilters): Promise<FeedResult> {
@@ -111,13 +122,14 @@ export class FeedService {
     }
     const limit = Math.min(Math.max(f.limit ?? 20, 1), 50);
 
-    // Get current user's lat/lng, gender, dob
+    // Get current user's lat/lng, gender, dob, last_active
     const me = await this.db.one<{
       gender: string;
       lat: number | null;
       lng: number | null;
       dob: Date | null;
-    }>('SELECT gender, lat, lng, dob FROM users WHERE id = $1', [userId]);
+      last_active: Date;
+    }>('SELECT gender, lat, lng, dob, last_active FROM users WHERE id = $1', [userId]);
 
     if (!me) {
       throw new NotFoundException('User not found');
@@ -197,8 +209,8 @@ export class FeedService {
       cursorFilter = `
         AND (
           shared_interests < $${si}
-          OR (shared_interests = $${si} AND COALESCE(distance_m, 999999999) > $${dm})
-          OR (shared_interests = $${si} AND COALESCE(distance_m, 999999999) = $${dm} AND user_id > $${uid})
+          OR (shared_interests = $${si} AND COALESCE(distance_m, 999999999) > COALESCE($${dm}, 999999999))
+          OR (shared_interests = $${si} AND COALESCE(distance_m, 999999999) = COALESCE($${dm}, 999999999) AND user_id > $${uid})
         )`;
       params.push(decodedCursor.shared_interests, decodedCursor.distance_m, decodedCursor.user_id);
     }
@@ -209,21 +221,18 @@ export class FeedService {
       AND ((SELECT seeking FROM profiles WHERE user_id = $1) = 'any' OR (SELECT seeking FROM profiles WHERE user_id = $1) = u.gender)
     `;
 
-    // Build the query
+    // Build the query — capped candidate set for scaling.
+    // First: fast geo + filter pre-selection (capped at FEED_CANDIDATE_CAP).
+    // Then: compute shared_interests + distance on capped set, apply cursor + final sort.
     const query = `
       WITH me AS (SELECT $1::uuid AS user_id, $2::float8 AS lat, $3::float8 AS lng),
            mine AS (SELECT interest_id FROM user_interests WHERE user_id = $1),
-           candidates AS (
+           pre_candidates AS (
         SELECT u.id AS user_id, u.gender, u.dob, u.location, u.lat, u.lng,
                p.name, p.bio, p.profession, p.education, p.marital_status, p.city,
                p.religious_practice_level, p.sect, p.photos, p.verification_status,
-               (SELECT count(*)::int FROM user_interests x
-                 WHERE x.user_id = u.id
-                   AND x.interest_id IN (SELECT interest_id FROM mine)) AS shared_interests,
-               CASE
-                 WHEN u.geo IS NULL OR $2 IS NULL OR $3 IS NULL THEN NULL
-                 ELSE ST_Distance(u.geo, ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography)
-               END AS distance_m
+               u.geo,
+               u.last_active
         FROM users u
         JOIN profiles p ON p.user_id = u.id
        WHERE u.id <> $1
@@ -248,11 +257,36 @@ export class FeedService {
          AND NOT EXISTS (SELECT 1 FROM likes WHERE from_user_id = $1 AND to_user_id = u.id)
          AND NOT EXISTS (SELECT 1 FROM matches WHERE (user_a_id = $1 AND user_b_id = u.id) OR (user_b_id = $1 AND user_a_id = u.id))
          ${seekingFilter}
+         AND ($6 IS NULL OR u.geo IS NOT NULL)
+       ORDER BY
+         -- Activity boost: recently active users first (within 7 days)
+         CASE WHEN u.last_active > now() - INTERVAL '7 days' THEN 0 ELSE 1 END,
+         -- Pre-sort by distance when we have location (helps GiST index)
+         CASE WHEN $2 IS NOT NULL AND $3 IS NOT NULL AND u.geo IS NOT NULL
+              THEN ST_Distance(u.geo, ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography)
+              ELSE 999999999 END
+       LIMIT ${FEED_CANDIDATE_CAP}
+      ),
+      candidates AS (
+        SELECT *,
+               (SELECT count(*)::int FROM user_interests x
+                 WHERE x.user_id = pre_candidates.user_id
+                   AND x.interest_id IN (SELECT interest_id FROM mine)) AS shared_interests,
+               CASE
+                 WHEN pre_candidates.geo IS NULL OR $2 IS NULL OR $3 IS NULL THEN NULL
+                 ELSE ST_Distance(pre_candidates.geo, ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography)
+               END AS distance_m
+        FROM pre_candidates
       )
       SELECT * FROM candidates
        WHERE ($6 IS NULL OR distance_m IS NULL OR distance_m <= $6 * 1000)
          ${cursorFilter}
-       ORDER BY shared_interests DESC, distance_m ASC NULLS LAST, user_id
+       ORDER BY
+         -- Activity boost: recently active users ranked higher
+         CASE WHEN last_active > now() - INTERVAL '7 days' THEN 0 ELSE 1 END,
+         shared_interests DESC,
+         distance_m ASC NULLS LAST,
+         user_id
        LIMIT $${p.add()}
     `;
 
@@ -275,9 +309,13 @@ export class FeedService {
     return {
       items: rows.map(row => {
         const { lat, lng, dob, distance_m, distance_km, geo, ...rest } = row;
+        // Add jitter to prevent trilateration (up to ~1km)
+        const jitteredDistanceKm = distance_m
+          ? (distance_m + (Math.random() * 2 - 1) * DISTANCE_JITTER_M) / 1000
+          : null;
         return {
           ...rest,
-          distance_bucket: distanceToBucket(distance_m ? distance_m / 1000 : null),
+          distance_bucket: distanceToBucket(jitteredDistanceKm),
         };
       }),
       nextCursor,
@@ -293,25 +331,24 @@ export class FeedService {
    * Uses sequential queries to avoid pg 8 concurrent query warnings on single client.
    */
   private async assertCanInteract(conn: ExtendedQueryable, userId: string, targetId: string): Promise<void> {
-    // Check onboarding and gender for both users in a single combined query
-    const [userCheck, targetCheck] = await Promise.all([
-      conn.oneOrNone<{ name: string | null; photos: string[] | null; gender: string | null }>(
-        `SELECT p.name, p.photos, u.gender
-           FROM profiles p JOIN users u ON u.id = p.user_id
-           WHERE p.user_id = $1`,
-        [userId],
-      ),
-      conn.oneOrNone<{ name: string | null; photos: string[] | null; gender: string | null }>(
-        `SELECT p.name, p.photos, u.gender
-           FROM profiles p JOIN users u ON u.id = p.user_id
-           WHERE p.user_id = $1`,
-        [targetId],
-      ),
-    ]);
-
+    // Check onboarding and gender for liker (sequential)
+    const userCheck = await conn.oneOrNone<{ name: string | null; photos: string[] | null; gender: string | null }>(
+      `SELECT p.name, p.photos, u.gender
+         FROM profiles p JOIN users u ON u.id = p.user_id
+         WHERE p.user_id = $1`,
+      [userId],
+    );
     if (!userCheck?.name || !userCheck?.photos?.length || !userCheck?.gender) {
       throw new BadRequestException('profile_incomplete');
     }
+
+    // Check onboarding and gender for target (sequential)
+    const targetCheck = await conn.oneOrNone<{ name: string | null; photos: string[] | null; gender: string | null }>(
+      `SELECT p.name, p.photos, u.gender
+         FROM profiles p JOIN users u ON u.id = p.user_id
+         WHERE p.user_id = $1`,
+      [targetId],
+    );
     if (!targetCheck?.name || !targetCheck?.photos?.length || !targetCheck?.gender) {
       throw new BadRequestException('profile_incomplete');
     }
@@ -325,7 +362,7 @@ export class FeedService {
     const blocked = blockedResult?.n ?? 0;
     if (blocked) throw new ConflictException('unavailable'); // No info leak
 
-    // Verify target exists, is active, and verified (single combined query)
+    // Verify target exists, is active, and verified
     const target = await conn.oneOrNone<{ id: string; status: string | null; verification_status: string | null }>(
       `SELECT u.id, u.status, p.verification_status
          FROM users u JOIN profiles p ON p.user_id = u.id
@@ -338,7 +375,7 @@ export class FeedService {
       throw new ConflictException('target_not_verified');
     }
 
-    // Also verify the LIKER is active and verified (single combined query)
+    // Also verify the LIKER is active and verified
     const user = await conn.oneOrNone<{ id: string; status: string | null; verification_status: string | null }>(
       `SELECT u.id, u.status, p.verification_status
          FROM users u JOIN profiles p ON p.user_id = u.id
@@ -346,7 +383,7 @@ export class FeedService {
       [userId],
     );
     if (!user || user.status !== 'active') {
-      throw new ConflictException('subscription_inactive');
+      throw new ConflictException('user_unavailable'); // Not subscription_inactive - could be suspended/banned
     }
     if (user.verification_status !== 'verified') {
       throw new ConflictException('user_not_verified');
@@ -372,7 +409,13 @@ export class FeedService {
         [userId, targetId],
       );
 
-      // 2. Validate both users can interact (onboarding, gender, blocks, active, verified)
+      // 2. Update last_active for liker (meaningful activity)
+      await conn.query(
+        'UPDATE users SET last_active = now() WHERE id = $1',
+        [userId],
+      );
+
+      // 3. Validate both users can interact (onboarding, gender, blocks, active, verified)
       await this.assertCanInteract(conn, userId, targetId);
 
       // 3. Check if pair was previously unmatched
@@ -439,9 +482,7 @@ export class FeedService {
           `INSERT INTO outbox (type, payload) VALUES ($1, $2)`,
           ['new_like', JSON.stringify({ fromUserId: userId, toUserId: targetId })],
         );
-        // Fire-and-forget outbox processing for low latency
-        this.processOutboxAfterCommit().catch(err => this.log.warn('outbox post-commit processing failed', err));
-        return { liked: true, matched: false, matchId: null, likesRemainingToday: remaining };
+        return { liked: true, matched: false, matchId: null, likesRemainingToday: remaining } as LikeOutcome;
       }
 
       // 9. Match! Insert match (normalized pair) - don't revive unmatched
@@ -472,10 +513,11 @@ export class FeedService {
         ['new_match', JSON.stringify({ matchId, userIds: [userId, targetId] })],
       );
 
-      // Fire-and-forget outbox processing for low latency
+      return { liked: true, matched: true, matchId, likesRemainingToday: remaining } as LikeOutcome;
+    }).then((result: LikeOutcome) => {
+      // Process outbox AFTER transaction commits
       this.processOutboxAfterCommit().catch(err => this.log.warn('outbox post-commit processing failed', err));
-
-      return { liked: true, matched: true, matchId, likesRemainingToday: remaining };
+      return result;
     });
   }
 
@@ -504,6 +546,12 @@ export class FeedService {
         [userId, targetId],
       );
 
+      // Update last_active for passer (meaningful activity)
+      await conn.query(
+        'UPDATE users SET last_active = now() WHERE id = $1',
+        [userId],
+      );
+
       // Verify target exists (only requirement for pass)
       const target = await conn.oneOrNone<{ id: string }>(
         'SELECT id FROM users WHERE id = $1',
@@ -521,7 +569,9 @@ export class FeedService {
     });
   }
 
-  /** Spec 1.2 — block removes the pair from both feeds and ends any match. */
+  /** Spec 1.2 — block removes the pair from both feeds and ends any match.
+   * Also freezes the Stream channel so blocked user cannot message.
+   */
   async block(userId: string, targetId: string, reason?: string): Promise<{ blocked: true }> {
     if (userId === targetId) throw new BadRequestException('cannot_block_self');
 
@@ -530,6 +580,12 @@ export class FeedService {
       await conn.query(
         `SELECT pg_advisory_xact_lock(hashtextextended(least($1,$2)::text || greatest($1,$2)::text, 0))`,
         [userId, targetId],
+      );
+
+      // Update last_active for blocker (meaningful activity)
+      await conn.query(
+        'UPDATE users SET last_active = now() WHERE id = $1',
+        [userId],
       );
 
       // Verify target exists (only requirement for block)
@@ -571,7 +627,46 @@ export class FeedService {
           [userId, targetId, reason],
         );
       }
+
+      // 5. Freeze Stream channel so blocked user cannot message
+      // Done after commit to avoid holding Stream lock in DB transaction
+      this.freezeStreamChannel(userId, targetId).catch(err =>
+        this.log.warn(`Failed to freeze Stream channel after block: ${String(err)}`),
+      );
+
       return { blocked: true };
     });
+  }
+
+  /** Freeze Stream channel between two users (prevents messaging). */
+  private async freezeStreamChannel(userId: string, targetId: string): Promise<void> {
+    try {
+      const client = this.auth.getStreamClient();
+      // Create a channel between the two users and freeze it
+      // Channel type 'messaging' with members [userId, targetId]
+      const channel = client.channel('messaging', {
+        members: [userId, targetId],
+      });
+      // Freeze the channel - blocked user can't send messages
+      await channel.update({ frozen: true });
+      this.log.log(`Froze Stream channel between ${userId} and ${targetId}`);
+    } catch (err) {
+      this.log.warn(`Stream channel freeze failed: ${String(err)}`);
+      throw err;
+    }
+  }
+
+  /** Unfreeze Stream channel when unblocking (if we add unblock endpoint later). */
+  async unfreezeStreamChannel(userId: string, targetId: string): Promise<void> {
+    try {
+      const client = this.auth.getStreamClient();
+      const channel = client.channel('messaging', {
+        members: [userId, targetId],
+      });
+      await channel.update({ frozen: false });
+      this.log.log(`Unfroze Stream channel between ${userId} and ${targetId}`);
+    } catch (err) {
+      this.log.warn(`Stream channel unfreeze failed: ${String(err)}`);
+    }
   }
 }

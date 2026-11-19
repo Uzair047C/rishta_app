@@ -1,5 +1,5 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
-import { Db } from '../db/db';
+import { Inject, Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Db, ExtendedQueryable } from '../db/db';
 import { PgBossService } from './pg-boss.service';
 import { PushService } from '../notifications/push.service';
 
@@ -10,7 +10,7 @@ export class OutboxWorker implements OnModuleInit {
   private readonly BASE_DELAY_MS = 1000; // 1s, 2s, 4s, 8s, 16s
 
   constructor(
-    private readonly db: Db,
+    @Inject('WORKER_DB') private readonly db: Db,
     private readonly pgBoss: PgBossService,
     private readonly push: PushService,
   ) {}

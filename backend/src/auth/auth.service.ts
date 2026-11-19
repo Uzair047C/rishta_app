@@ -11,17 +11,21 @@ import { OAuth2Client } from 'google-auth-library';
 export class AuthService {
   private readonly googleOAuthClient = new OAuth2Client();
 
+  // Refresh token settings (read from config with defaults matching validation.ts)
+  private readonly REFRESH_TOKEN_TTL_DAYS: number;
+  private readonly ACCESS_TOKEN_TTL_MINUTES: number;
+  private readonly REFRESH_GRACE_WINDOW_MS = 20000; // 20s grace window for network flakiness
+
   constructor(
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly db: Db,
-  ) {}
-
-  // Refresh token settings (read from config with defaults matching validation.ts)
-  private readonly REFRESH_TOKEN_TTL_DAYS = 30;
-  private readonly ACCESS_TOKEN_TTL_MINUTES = 15;
-  private readonly REFRESH_GRACE_WINDOW_MS = 20000; // 20s grace window for network flakiness
+  ) {
+    // Read from config after injection (can't use 'this' in field initializers)
+    this.REFRESH_TOKEN_TTL_DAYS = parseInt(this.configService.get<string>('JWT_REFRESH_TTL_DAYS') ?? '30', 10);
+    this.ACCESS_TOKEN_TTL_MINUTES = parseInt(this.configService.get<string>('JWT_ACCESS_TTL_MINUTES') ?? '15', 10);
+  }
 
   // SHA-256 hash for refresh token (high-entropy token, no bcrypt needed)
   private hashToken(token: string): string {
@@ -81,6 +85,9 @@ export class AuthService {
         throw err;
       }
     }
+
+    // Update last_active on login
+    await this.db.query('UPDATE users SET last_active = now() WHERE id = $1', [user.id]);
 
     // Generate tokens
     const { accessToken, refreshToken } = await this.issueTokenPair(user.id);
@@ -311,7 +318,8 @@ export class AuthService {
 
   private streamClient: any = null;
 
-  private getStreamClient() {
+  /** Get Stream Chat client (public for FeedService to freeze channels on block). */
+  getStreamClient() {
     if (!this.streamClient) {
       const streamApiKey = this.configService.get<string>('STREAM_API_KEY');
       const streamApiSecret = this.configService.get<string>('STREAM_API_SECRET');

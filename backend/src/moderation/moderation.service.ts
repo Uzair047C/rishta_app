@@ -44,7 +44,16 @@ export class ModerationService {
 
   async screenText(text: string, userId: string, source: Source, refId?: string): Promise<ScreenResult> {
     const key = process.env.OPENAI_API_KEY;
-    if (!key || !text.trim()) return CLEAN;
+    if (!key) {
+      // Fail closed in production (NODE_ENV=production), fail open in dev
+      const isProduction = process.env.NODE_ENV === 'production';
+      if (isProduction) {
+        this.log.error('OpenAI API key not configured in production; failing closed');
+        return { flagged: true, labels: ['moderation_unconfigured'], score: 1 };
+      }
+      return CLEAN;
+    }
+    if (!text.trim()) return CLEAN;
 
     try {
       const res = await fetch('https://api.openai.com/v1/moderations', {
@@ -65,8 +74,13 @@ export class ModerationService {
       if (top.flagged) await this.flag(userId, source, refId, text, labels, Math.max(...Object.values(top.category_scores)));
       return { flagged: top.flagged, labels, score: Math.max(0, ...Object.values(top.category_scores)) };
     } catch (err) {
-      // Fail open, but loudly: a moderation outage must not take down posting.
-      this.log.warn(`text moderation unavailable (${String(err)}); content not screened`);
+      // Fail closed in production, fail open in dev
+      const isProduction = process.env.NODE_ENV === 'production';
+      if (isProduction) {
+        this.log.error(`text moderation failed in production (${String(err)}); failing closed`);
+        return { flagged: true, labels: ['moderation_error'], score: 1 };
+      }
+      this.log.warn(`text moderation unavailable (${String(err)}); content not screened (dev mode)`);
       return CLEAN;
     }
   }

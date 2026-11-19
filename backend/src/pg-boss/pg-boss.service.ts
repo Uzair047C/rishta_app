@@ -1,5 +1,6 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Pool } from 'pg';
 
 // pg-boss v10+ API - uses named exports and createQueue
 type PgBossInstance = {
@@ -17,7 +18,10 @@ export class PgBossService implements OnModuleInit, OnModuleDestroy {
   private boss: PgBossInstance | null = null;
   private readonly connectionString: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    @Inject('PG_POOL_WORKER') private readonly workerPool: Pool,
+  ) {
     this.connectionString = this.config.get<string>('DATABASE_URL') ?? '';
   }
 
@@ -27,9 +31,9 @@ export class PgBossService implements OnModuleInit, OnModuleDestroy {
       throw new Error('DATABASE_URL is required for PgBoss');
     }
 
-    // pg-boss v10+ uses named export
+    // pg-boss v10+ uses named export - use existing worker pool to avoid separate connection
     const { PgBoss } = require('pg-boss');
-    const boss = new PgBoss(this.connectionString, {
+    const boss = new PgBoss({ connectionString: this.connectionString, pool: this.workerPool }, {
       schema: 'public',
       archiveCompletedJobsEvery: '1 hour',
       archiveCompletedJobsOlderThan: '1 day',
@@ -39,7 +43,7 @@ export class PgBossService implements OnModuleInit, OnModuleDestroy {
 
     await boss.start();
     this.boss = boss;
-    this.log.log('PgBoss started');
+    this.log.log('PgBoss started (using worker pool)');
   }
 
   async onModuleDestroy(): Promise<void> {

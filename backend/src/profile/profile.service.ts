@@ -1,10 +1,14 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { Db } from '../db/db';
+import { Db, ExtendedQueryable } from '../db/db';
 import { MaritalStatus, ProfileRow, ReligiousPracticeLevel, Sect, TagRow, UserRow } from '../db/types';
 import { ModerationService } from '../moderation/moderation.service';
 import { VerificationService } from '../verification/verification.service';
 
 const MAX_PHOTOS = 6;
+// Rate limit: max 1 location update per 5 minutes per user (prevents trilateration)
+const LOCATION_UPDATE_COOLDOWN_MS = 5 * 60 * 1000;
+// Jitter: add random noise up to ~1km to distance buckets in feed
+const DISTANCE_JITTER_M = 1000;
 
 export interface ProfileInput {
   name?: string;
@@ -40,6 +44,18 @@ export class ProfileService {
     private readonly moderation: ModerationService,
     private readonly verification: VerificationService,
   ) {}
+
+  /** Check if user can update location (rate limit: 1 per 5 min). */
+  private async checkLocationRateLimit(conn: ExtendedQueryable, userId: string): Promise<void> {
+    const result = await conn.oneOrNone<{ last_location_update: number | null }>(
+      `SELECT EXTRACT(EPOCH FROM (now() - updated_at)) * 1000 AS last_location_update
+       FROM profiles WHERE user_id = $1 AND (lat IS NOT NULL OR lng IS NOT NULL)`,
+      [userId],
+    );
+    if (result && result.last_location_update !== null && result.last_location_update < LOCATION_UPDATE_COOLDOWN_MS) {
+      throw new BadRequestException('location_update_too_frequent');
+    }
+  }
 
   interests(): Promise<TagRow[]> {
     return this.db.repo<TagRow>('interests').all('SELECT id, label FROM interests ORDER BY label');
@@ -565,6 +581,8 @@ export class ProfileService {
           userParams.push(dto.location);
         }
         if (dto.lat !== undefined || dto.lng !== undefined) {
+          // Rate limit location updates to prevent trilateration
+          await this.checkLocationRateLimit(conn, userId);
           // Only update lat/lng if provided
           if (dto.lat !== undefined) {
             userUpdates.push(`lat = $${paramIndex++}`);

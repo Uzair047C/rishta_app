@@ -6,6 +6,7 @@ import { SubscriptionService } from '../subscription/subscription.service';
 import { UsersService } from '../users/users.service';
 import { PushService } from '../notifications/push.service';
 import { OutboxWorker } from '../pg-boss/outbox.worker';
+import { AuthService } from '../auth/auth.service';
 
 describe('FeedService', () => {
   let service: FeedService;
@@ -14,6 +15,7 @@ describe('FeedService', () => {
   let usersService: any;
   let pushService: any;
   let outboxWorker: any;
+  let authService: any;
 
   const userId = '11111111-1111-1111-1111-111111111111';
   const targetId = '22222222-2222-2222-2222-222222222222';
@@ -66,6 +68,14 @@ describe('FeedService', () => {
       processBatch: jest.fn().mockResolvedValue(undefined),
     };
 
+    authService = {
+      getStreamClient: jest.fn(() => ({
+        channel: jest.fn(() => ({
+          update: jest.fn().mockResolvedValue({}),
+        })),
+      })),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FeedService,
@@ -74,6 +84,7 @@ describe('FeedService', () => {
         { provide: UsersService, useValue: usersService },
         { provide: PushService, useValue: pushService },
         { provide: OutboxWorker, useValue: outboxWorker },
+        { provide: AuthService, useValue: authService },
       ],
     }).compile();
 
@@ -337,7 +348,7 @@ describe('FeedService', () => {
       await expect(service.like(userId, targetId)).rejects.toThrow(ConflictException);
     });
 
-    it('should throw ConflictException subscription_inactive when subscription not active', async () => {
+    it('should throw ConflictException user_unavailable when user is banned/suspended', async () => {
       setupTxMock({
         userCheck: { name: 'User', photos: ['p.jpg'], gender: 'male' },
         targetCheck: { name: 'Target', photos: ['p.jpg'], gender: 'female' },
@@ -346,7 +357,7 @@ describe('FeedService', () => {
         user: { id: userId, status: 'banned', verification_status: 'verified' },
       });
       await expect(service.like(userId, targetId)).rejects.toThrow(ConflictException);
-      await expect(service.like(userId, targetId)).rejects.toThrow('subscription_inactive');
+      await expect(service.like(userId, targetId)).rejects.toThrow('user_unavailable');
     });
 
     it('should throw ConflictException user_not_verified when user not verified', async () => {
