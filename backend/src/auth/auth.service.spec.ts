@@ -208,20 +208,20 @@ describe('AuthService', () => {
       const mockTxDb: ExtendedQueryable = {
         query: jest.fn().mockResolvedValue({ rows: [], rowCount: 1 }),
         oneOrNone: jest.fn()
-          .mockResolvedValueOnce({ // First call: refresh token lookup
+          .mockResolvedValueOnce({ // First call: CTE rotation query succeeds
             id: 'token-id',
             user_id: mockUser.id,
-            token_hash: 'hash',
-            expires_at: new Date(Date.now() + 86400000),
-            revoked_at: null,
             family_id: 'family-123',
-            replaced_by: null,
+            replaced_by: 'new-token-id',
+            revoked_at: new Date(),
+            expires_at: new Date(Date.now() + 86400000),
+            user_status: 'active',
           })
-          .mockResolvedValueOnce({ // Second call: user status check
+          .mockResolvedValueOnce({ // Second call: not used in success path but keep for safety
             id: mockUser.id,
             status: 'active',
           }),
-        one: jest.fn().mockResolvedValue({ id: 'new-token-id' }),
+        one: jest.fn().mockResolvedValue({ id: 'new-token-id', token_hash: 'new-hash' }),
         all: jest.fn(),
         count: jest.fn(),
       };

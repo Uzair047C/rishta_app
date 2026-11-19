@@ -2,13 +2,16 @@ plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
-    implementation("com.google.firebase:firebase-analytics")
 }
 
 android {
     namespace = "com.example.rishta"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
+
+    buildFeatures {
+        buildConfig = true
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -30,7 +33,7 @@ android {
         versionName = flutter.versionName
     }
 
-    flavorDimensions = "environment"
+    flavorDimensions += "environment"
     productFlavors {
         create("dev") {
             dimension = "environment"

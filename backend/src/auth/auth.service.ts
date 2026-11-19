@@ -18,9 +18,10 @@ export class AuthService {
     private readonly db: Db,
   ) {}
 
-  // Refresh token settings
+  // Refresh token settings (read from config with defaults matching validation.ts)
   private readonly REFRESH_TOKEN_TTL_DAYS = 30;
   private readonly ACCESS_TOKEN_TTL_MINUTES = 15;
+  private readonly REFRESH_GRACE_WINDOW_MS = 20000; // 20s grace window for network flakiness
 
   // SHA-256 hash for refresh token (high-entropy token, no bcrypt needed)
   private hashToken(token: string): string {
@@ -98,7 +99,7 @@ export class AuthService {
     // Atomic rotation with reuse detection in single transaction
     // Returns { userId, familyId, isReuse, isBanned, newRefreshToken } for post-commit actions
     const result = await this.db.tx(async (conn) => {
-      // Atomic rotation: revoke old and insert new in one statement
+      // Atomic rotation: revoke old and insert new in one statement using CTE
       const newRefreshToken = this.generateRefreshToken();
       const newTokenHash = this.hashToken(newRefreshToken);
       const expiresAt = new Date(Date.now() + this.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
@@ -112,18 +113,18 @@ export class AuthService {
         expires_at: Date;
         user_status: string | null;
       }>(`
-        WITH rotated AS (
+        WITH new_token AS (
+          INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at)
+          SELECT user_id, $2, family_id, $3
+          FROM refresh_tokens
+          WHERE token_hash = $1
+            AND revoked_at IS NULL
+            AND expires_at > now()
+          RETURNING id, user_id, family_id
+        ), rotated AS (
           UPDATE refresh_tokens
           SET revoked_at = now(), replaced_by = new_token.id
-          FROM (
-            INSERT INTO refresh_tokens (user_id, token_hash, family_id, expires_at)
-            SELECT user_id, $2, family_id, $3
-            FROM refresh_tokens
-            WHERE token_hash = $1
-              AND revoked_at IS NULL
-              AND expires_at > now()
-            RETURNING id, user_id, family_id
-          ) new_token
+          FROM new_token
           WHERE refresh_tokens.id = new_token.id
           RETURNING refresh_tokens.id, refresh_tokens.user_id, refresh_tokens.family_id,
                     refresh_tokens.replaced_by, refresh_tokens.revoked_at, refresh_tokens.expires_at
@@ -154,7 +155,38 @@ export class AuthService {
 
         if (existingToken.revoked_at) {
           if (existingToken.replaced_by) {
-            // Reuse detected - revoke family
+            // Check grace window: if revoked recently, accept once and return same successor
+            const successor = await conn.oneOrNone<{
+              id: string;
+              token_hash: string;
+              revoked_at: Date | null;
+              expires_at: Date;
+            }>(
+              'SELECT id, token_hash, revoked_at, expires_at FROM refresh_tokens WHERE id = $1',
+              [existingToken.replaced_by]
+            );
+            if (successor && !successor.revoked_at && successor.expires_at > new Date()) {
+              const revokedAt = new Date(existingToken.revoked_at).getTime();
+              const now = Date.now();
+              if (now - revokedAt <= this.REFRESH_GRACE_WINDOW_MS) {
+                // Grace window: return the same successor token
+                return {
+                  error: null,
+                  userId: existingToken.user_id,
+                  familyId: existingToken.family_id,
+                  isReuse: false,
+                  isBanned: false,
+                  newRefreshToken: null, // client already has this token
+                  accessToken: this.jwtService.sign({ userId: existingToken.user_id }, {
+                    secret: this.configService.get<string>('JWT_SECRET')!,
+                    expiresIn: `${this.ACCESS_TOKEN_TTL_MINUTES}m`,
+                    issuer: this.configService.get<string>('JWT_ISSUER') ?? 'rishta-api',
+                    audience: this.configService.get<string>('JWT_AUDIENCE') ?? 'rishta-app',
+                  }),
+                };
+              }
+            }
+            // Reuse detected outside grace window - revoke family
             return { error: 'reuse', userId: existingToken.user_id, familyId: existingToken.family_id, isReuse: true, isBanned: false };
           }
           return { error: 'revoked', userId: existingToken.user_id, familyId: existingToken.family_id, isReuse: false, isBanned: false };
