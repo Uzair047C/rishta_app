@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 
 import 'core/core.dart';
 import 'features/feed/feed_screen.dart';
@@ -12,6 +14,11 @@ final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.light);
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   debugPrint('Main: Starting app');
+
+  // Initialize Firebase
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
   // Initialize Google Sign-In
   await GoogleSignInService.initialize();

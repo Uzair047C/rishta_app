@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
 import 'auth_storage.dart';
 import 'config_provider.dart';
 
@@ -110,7 +111,7 @@ class Api {
   }
 
   Future<T> get<T>(String path, T Function(Object? json) parse, {Map<String, Object?>? query, bool requiresAuth = true}) =>
-      request('GET', path, parse: parse, query: query, requiresAuth: requiresAuth);
+      _requestWithRetry('GET', path, parse: parse, query: query, requiresAuth: requiresAuth);
 
   Future<T> post<T>(String path, {Object? body, T Function(Object? json)? parse, bool requiresAuth = true}) =>
       request('POST', path, body: body, parse: parse ?? (json) => json as T, requiresAuth: requiresAuth);
@@ -135,13 +136,34 @@ class Api {
 
   /// Generates an idempotency key for mutating requests.
   String _generateIdempotencyKey() {
-    // Simple UUID v4 without external dependency
-    final random = DateTime.now().microsecondsSinceEpoch;
-    final chars = '0123456789abcdef';
-    return [
-      for (var i = 0; i < 16; i++)
-        i == 6 ? '4' : i == 8 ? '89ab'[random % 4] : chars[random % 16]
-    ].join();
+    return const Uuid().v4();
+  }
+
+  /// Retry config for idempotent GET requests.
+  static const _maxRetries = 3;
+  static const _baseDelayMs = 500;
+
+  /// Executes a GET request with exponential backoff retry on transient errors.
+  Future<T> _requestWithRetry<T>(
+    String method,
+    String path, {
+    required T Function(Object? json) parse,
+    Map<String, Object?>? query,
+    bool requiresAuth = true,
+  }) async {
+    var attempt = 0;
+    while (true) {
+      try {
+        return await request(method, path, parse: parse, query: query, requiresAuth: requiresAuth);
+      } on ApiException catch (e) {
+        // Only retry on network errors (status 0) for idempotent GET
+        if (e.statusCode != 0 || attempt >= _maxRetries) rethrow;
+        final delay = _baseDelayMs * (1 << attempt); // 500ms, 1000ms, 2000ms
+        if (kDebugMode) debugPrint('GET retry $attempt/$_maxRetries after ${delay}ms: ${e.code}');
+        await Future.delayed(Duration(milliseconds: delay));
+        attempt++;
+      }
+    }
   }
 
   /// Single request path: handles timeouts, non-JSON bodies, error mapping, 401 retry, and idempotency.
@@ -153,6 +175,7 @@ class Api {
     Map<String, Object?>? query,
     bool requiresAuth = true,
     bool retried = false,
+    String? idempotencyKey,
   }) async {
     final base = await _resolveBase();
     final uri = Uri.parse('$base$path').replace(
@@ -163,8 +186,9 @@ class Api {
       ..headers['content-type'] = 'application/json';
 
     // Add idempotency key for mutating requests (like, purchase)
+    // On retry after 401, reuse the original key to preserve idempotency
     if (requiresAuth && (method == 'POST' || method == 'PUT' || method == 'PATCH')) {
-      request.headers['idempotency-key'] = _generateIdempotencyKey();
+      request.headers['idempotency-key'] = idempotencyKey ?? _generateIdempotencyKey();
     }
 
     // Add Authorization header if auth is required
@@ -232,8 +256,19 @@ class Api {
     if (response.statusCode == 401 && requiresAuth && !retried) {
       final refreshed = await _tryRefreshToken();
       if (refreshed) {
-        // Retry the request with new token
-        return await this.request<T>(method, path, parse: parse, body: body, query: query, requiresAuth: requiresAuth, retried: true);
+        // Retry the request with new token, preserving idempotency key
+        final currentKey = requiresAuth && (method == 'POST' || method == 'PUT' || method == 'PATCH')
+            ? request.headers['idempotency-key']
+            : null;
+        return await this.request<T>(
+          method, path,
+          parse: parse,
+          body: body,
+          query: query,
+          requiresAuth: requiresAuth,
+          retried: true,
+          idempotencyKey: currentKey,
+        );
       }
       // Refresh failed - clear auth state
       await _authStorage.clear();

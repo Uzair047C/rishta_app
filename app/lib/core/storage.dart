@@ -1,18 +1,16 @@
 import 'dart:io';
-import 'dart:math';
+import 'package:firebase_storage/firebase_storage.dart';
 
-/// Simple local storage implementation for development.
-/// In production, this should be replaced with a proper cloud storage solution.
+/// Firebase Storage implementation for production.
 abstract final class Storage {
-  static Future<String> upload(String path, File file) async {
-    // For now, we'll simulate upload by returning a mock URL
-    // In a real implementation, this would upload to actual storage
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final random = Random().nextInt(10000);
-    final filename = '$path${path.endsWith('/') ? '' : '/'}$random-$timestamp-${file.path.split('/').last}';
+  static final FirebaseStorage _storage = FirebaseStorage.instance;
 
-    // Return a mock URL that follows the same format as Firebase Storage URLs
-    return 'https://storage.googleapis.com/mock-bucket/$filename';
+  /// Uploads a file to Firebase Storage and returns the download URL.
+  static Future<String> upload(String path, File file) async {
+    final ref = _storage.ref(path);
+    final uploadTask = ref.putFile(file);
+    final snapshot = await uploadTask.whenComplete(() {});
+    return await snapshot.ref.getDownloadURL();
   }
 
   /// Timestamped so a replacement never collides with the photo it replaces —
