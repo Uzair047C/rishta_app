@@ -118,4 +118,17 @@ export class PgBossService implements OnModuleInit, OnModuleDestroy {
   getBoss(): PgBossInstance | null {
     return this.boss;
   }
+
+  /**
+   * Wait until PgBoss is initialized (for other services that need it in onModuleInit).
+   */
+  async waitUntilReady(timeoutMs = 10000): Promise<void> {
+    const start = Date.now();
+    while (!this.boss) {
+      if (Date.now() - start > timeoutMs) {
+        throw new Error('PgBoss initialization timeout');
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
 }

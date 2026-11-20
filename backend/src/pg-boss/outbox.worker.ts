@@ -16,6 +16,9 @@ export class OutboxWorker implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
+    // Wait for PgBoss to be ready (avoids race condition with parallel onModuleInit)
+    await this.pgBoss.waitUntilReady();
+
     // Schedule the outbox processor to run every minute (pg-boss minimum)
     await this.pgBoss.schedule(
       'outbox.process',
@@ -25,15 +28,10 @@ export class OutboxWorker implements OnModuleInit {
     );
 
     // Also define the worker for this job
-    await this.pgBoss.subscribe('outbox.process', async (jobs: { id: string; name: string; data: { type: string; payload: any } }[]) => {
+    await this.pgBoss.subscribe('outbox.process', async (jobs: { id: string; name: string; data: any }[]) => {
       // pg-boss v10+ passes array of jobs with {id, name, data}
-      for (const job of jobs) {
-        await this.processJob({
-          id: parseInt(job.id, 10),
-          type: job.data.type,
-          payload: job.data.payload,
-        });
-      }
+      // The scheduled job is just a trigger (data = {}), so call processBatch to fetch real jobs from DB
+      await this.processBatch();
     }, { teamSize: 1, teamConcurrency: 1 });
 
     this.log.log('Outbox worker scheduled (every minute)');
