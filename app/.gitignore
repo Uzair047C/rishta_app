@@ -46,3 +46,12 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Google Services & Secrets
+**/google-services.json
+**/GoogleService-Info.plist
+**/firebase_options.dart
+**/*.keystore
+**/*.jks
+**/key.properties
+**/local.properties

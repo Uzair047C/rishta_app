@@ -120,6 +120,16 @@ Thumbs.db
 *.pem
 *.key
 
+# Google Services & Firebase
+**/google-services.json
+**/GoogleService-Info.plist
+**/firebase_options.dart
+**/*.keystore
+**/*.jks
+**/key.properties
+**/local.properties
+**/debug.keystore
+
 # Coverage
 coverage/
 *.lcov
