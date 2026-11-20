@@ -5,6 +5,10 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
+/// Conditional import for web-specific JS interop
+import 'auth_web.dart'
+    if (dart.library.io) 'auth_web_stub.dart';
+
 /// Auth status enum
 enum AuthStatus { initial, unauthenticated, authenticating, authenticated, onboarding }
 
@@ -153,13 +157,10 @@ class GoogleSignInService {
 String? _getGoogleClientIdWeb() {
   if (kIsWeb) {
     // Reads from window.GOOGLE_SERVER_CLIENT_ID set in flutter_bootstrap.js
-    return _getGoogleClientIdWebJS();
+    return getGoogleClientIdWebJS();
   }
   return null;
 }
-
-@pragma('vm:entry-point')
-external String? _getGoogleClientIdWebJS();
 
 /// Auth notifier
 class AuthNotifier extends StateNotifier<AuthState> {

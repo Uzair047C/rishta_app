@@ -68,5 +68,16 @@
 	</array>
 	<key>API_BASE</key>
 	<string>$(API_BASE)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.googleusercontent.apps.550519095432-5qcabgkbdiqoqmdv2v08kc6n48vuuor4</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.550519095432-5qcabgkbdiqoqmdv2v08kc6n48vuuor4</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

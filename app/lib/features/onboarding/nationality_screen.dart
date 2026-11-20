@@ -32,7 +32,6 @@ class _NationalityScreenState extends ConsumerState<NationalityScreen> {
         helpText: 'Your nationality helps with location-based matching.',
         itemLabel: (item) => item['label'] ?? item['name'] ?? item.toString(),
         itemIcon: (item) => item['icon'] != null
-            // ignore: non_const_argument_for_const_parameter
             ? Icon(IconData((item['icon'] as int), fontFamily: 'MaterialIcons', matchTextDirection: true))
             : null,
       );

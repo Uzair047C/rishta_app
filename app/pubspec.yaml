@@ -22,7 +22,7 @@ dependencies:
 
   # Media capture. `camera` (not image_picker) is what makes the selfie step
   # in-app-only — see features/onboarding/selfie_screen.dart.
-  camera: ^0.11.1
+  camera: ^0.12.2
   image_picker: ^1.1.2
   geolocator: ^13.0.2
 
