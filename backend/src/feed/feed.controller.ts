@@ -5,12 +5,6 @@ import { IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateNeste
 import { CurrentUser } from '../auth/current-user.decorator';
 import { FeedFilters, FeedResult, FeedService } from './feed.service';
 
-class CursorDto {
-  @IsInt() shared_interests!: number;
-  @IsOptional() @IsInt() distance_km?: number | null;
-  @IsString() user_id!: string;
-}
-
 class FeedQuery implements FeedFilters {
   @IsOptional() @Type(() => Number) @IsInt() @Min(18) @Max(120) minAge?: number;
   @IsOptional() @Type(() => Number) @IsInt() @Min(18) @Max(120) maxAge?: number;

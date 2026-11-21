@@ -24,7 +24,7 @@ export class VerificationController {
   @Post('selfie')
   async selfie(@CurrentUser() userId: string, @Body() dto: SelfieDto) {
     const user = await this.users.require(userId);
-    return this.verification.submit(user, undefined, dto.selfieUrl);
+    return this.verification.submit(user, dto.selfieUrl);
   }
 
   /** Drives the pending/verified/failed screen. */

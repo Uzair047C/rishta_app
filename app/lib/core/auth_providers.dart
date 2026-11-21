@@ -61,6 +61,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   final AuthStorage _authStorage;
   final Api _api;
+  String? _pendingVerificationId;
 
   /// Restore session from secure storage on app startup.
   Future<void> _restoreSession() async {
@@ -316,6 +317,82 @@ class AuthNotifier extends StateNotifier<AuthState> {
       'operation-not-allowed' => 'Email/password sign-in is not enabled.',
       _ => 'Authentication failed: $code',
     };
+  }
+
+  /// Phone OTP: step 1 — send the code. Firebase delivers the SMS; the
+  /// verification id is held in memory until [verifyPhoneOtp].
+  Future<void> sendPhoneOtp(String phoneNumber) async {
+    state = state.copyWith(status: AuthStatus.authenticating, error: null);
+    await FirebaseAuth.instance.verifyPhoneNumber(
+      phoneNumber: phoneNumber,
+      timeout: const Duration(seconds: 60),
+      verificationCompleted: (credential) => _exchangeFirebaseToken(credential),
+      verificationFailed: (e) {
+        state = state.copyWith(
+          status: AuthStatus.unauthenticated,
+          error: _mapFirebaseAuthError(e.code),
+        );
+      },
+      codeSent: (verificationId, _) {
+        _pendingVerificationId = verificationId;
+        state = state.copyWith(status: AuthStatus.unauthenticated, error: null);
+      },
+      codeAutoRetrievalTimeout: (verificationId) => _pendingVerificationId = verificationId,
+    );
+  }
+
+  /// Phone OTP: step 2 — verify the code and exchange for app tokens.
+  Future<void> verifyPhoneOtp(String smsCode) async {
+    final verificationId = _pendingVerificationId;
+    if (verificationId == null) {
+      state = state.copyWith(status: AuthStatus.unauthenticated, error: 'Request a code first.');
+      return;
+    }
+    final credential = PhoneAuthProvider.credential(verificationId: verificationId, smsCode: smsCode);
+    await _exchangeFirebaseToken(credential);
+  }
+
+  /// Shared tail of every Firebase sign-in: ID token -> app tokens -> state.
+  Future<void> _exchangeFirebaseToken(Object credential) async {
+    try {
+      final user = credential is AuthCredential
+          ? (await FirebaseAuth.instance.signInWithCredential(credential)).user
+          : null;
+      if (user == null) throw Exception('Firebase sign-in failed');
+
+      final idToken = await user.getIdToken();
+      if (idToken == null) throw Exception('Failed to obtain Firebase ID token');
+
+      final response = await _api.post<Map<String, dynamic>>(
+        '/auth/firebase',
+        body: {'idToken': idToken},
+        requiresAuth: false,
+      );
+
+      final accessToken = response['accessToken'] as String;
+      final refreshToken = response['refreshToken'] as String;
+      final userJson = response['user'] as Map<String, dynamic>;
+      final profileComplete = response['profileComplete'] as bool;
+      final userId = userJson['id'] as String;
+
+      await _authStorage.setTokens(
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        userId: userId,
+      );
+
+      state = AuthState(
+        status: profileComplete ? AuthStatus.authenticated : AuthStatus.onboarding,
+        userId: userId,
+        profileComplete: profileComplete,
+      );
+    } on ApiException catch (e) {
+      state = state.copyWith(status: AuthStatus.unauthenticated, error: e.error.message);
+      rethrow;
+    } catch (e) {
+      state = state.copyWith(status: AuthStatus.unauthenticated, error: 'Sign in failed: $e');
+      rethrow;
+    }
   }
 
   /// Sign out and clear all auth data.

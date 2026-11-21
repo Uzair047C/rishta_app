@@ -111,6 +111,42 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                   const SizedBox(height: Tokens.spaceMd),
 
+                  // Email sign-in / sign-up
+                  TextButton(
+                    onPressed: _isSigningIn
+                        ? null
+                        : () => Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const EmailAuthScreen()),
+                            ),
+                    child: Text(
+                      'Continue with email',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Tokens.pinkDeep,
+                      ),
+                    ),
+                  ),
+
+                  // Phone OTP sign-in
+                  TextButton(
+                    onPressed: _isSigningIn
+                        ? null
+                        : () => Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const PhoneAuthScreen()),
+                            ),
+                    child: Text(
+                      'Continue with phone',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: Tokens.pinkDeep,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: Tokens.spaceMd),
+
                   // Error message
                   if (_error != null)
                     Padding(

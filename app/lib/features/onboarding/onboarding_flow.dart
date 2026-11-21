@@ -5,11 +5,15 @@ import '../../core/auth_providers.dart';
 import '../../core/providers.dart';
 import 'alcohol_screen.dart';
 import 'bio_screen.dart';
+import 'dob_screen.dart';
 import 'ethnicity_screen.dart';
+import 'gender_screen.dart';
 import 'interests_screen.dart';
+import 'location_screen.dart';
 import 'marital_status_screen.dart';
 import 'marriage_intentions_screen.dart';
 import 'move_abroad_screen.dart';
+import 'name_screen.dart';
 import 'nationality_screen.dart';
 import 'personality_screen.dart';
 import 'photo_guidelines_screen.dart';
@@ -55,6 +59,58 @@ class _OnboardingFlowState extends ConsumerState<OnboardingFlow> {
         onDone: onNext,
         currentStep: _currentStep + 1,
         totalSteps: _steps.length,
+      ),
+    ),
+    OnboardingStep(
+      title: 'Name',
+      build: (context, onNext) => NameScreen(
+        onConfirm: (name) async {
+          await ref.read(myProfileProvider.notifier).save({'name': name});
+          onNext();
+        },
+        currentStep: _currentStep + 1,
+        totalSteps: _steps.length,
+        helpText: 'Your name helps others recognize you and builds trust.',
+      ),
+    ),
+    OnboardingStep(
+      title: 'Date of Birth',
+      build: (context, onNext) => DobScreen(
+        onConfirm: (dob) async {
+          await ref.read(myProfileProvider.notifier).save({'dob': dob.toIso8601String()});
+          onNext();
+        },
+        currentStep: _currentStep + 1,
+        totalSteps: _steps.length,
+        helpText: 'Your age is shown on your profile for compatibility matching. You must be 18 or older.',
+      ),
+    ),
+    OnboardingStep(
+      title: 'Gender',
+      build: (context, onNext) => GenderScreen(
+        onConfirm: (gender) async {
+          await ref.read(myProfileProvider.notifier).save({'gender': gender});
+          onNext();
+        },
+        currentStep: _currentStep + 1,
+        totalSteps: _steps.length,
+        helpText: 'Your gender helps us show you relevant matches.',
+      ),
+    ),
+    OnboardingStep(
+      title: 'Location',
+      build: (context, onNext) => LocationScreen(
+        onConfirm: (city, lat, lng) async {
+          await ref.read(myProfileProvider.notifier).save({
+            'location': city,
+            if (lat != null) 'lat': lat,
+            if (lng != null) 'lng': lng,
+          });
+          onNext();
+        },
+        currentStep: _currentStep + 1,
+        totalSteps: _steps.length,
+        helpText: 'Your city helps with distance-based matching. Enable location for radius filtering.',
       ),
     ),
     OnboardingStep(

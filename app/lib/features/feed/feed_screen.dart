@@ -72,10 +72,10 @@ class _FeedScreenState extends ConsumerState<FeedScreen> {
             child: AsyncView(
               value: feed,
               onRetry: () => ref.invalidate(feedProvider),
-              isEmpty: (cards) => cards.isEmpty,
+              isEmpty: (page) => page.cards.isEmpty,
               emptyLabel: 'No new profiles right now. Widen your filters or check back later.',
-              builder: (cards) => _FeedListView(
-                cards: cards,
+              builder: (page) => _FeedListView(
+                cards: page.cards,
                 controller: _scrollController,
               ),
             ),
@@ -327,8 +327,8 @@ class _FeedCardView extends ConsumerWidget {
                         children: [
                           if (card.sharedInterests > 0)
                             _Pill('${card.sharedInterests} shared interests'),
-                          if (card.distanceKm != null)
-                            _Pill('${card.distanceKm!.round()} km away'),
+                          if (card.distanceBucket != null)
+                            _Pill('${card.distanceBucket} away'),
                         ],
                       ),
                     ],

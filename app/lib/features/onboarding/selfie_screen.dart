@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -84,12 +82,14 @@ class _SelfieScreenState extends ConsumerState<SelfieScreen>
     if (camera == null || !camera.value.isInitialized) return;
 
     await progress(() async {
-      final shot = await camera.takePicture();
+      await camera.takePicture();
       final userId = ref.read(myProfileProvider).valueOrNull?.userId ?? 'unknown';
-      final url = await Storage.upload(Storage.pathFor(userId, 'selfies'), File(shot.path));
+      final path = Storage.pathFor(userId, 'selfies');
+      final url = await Storage.upload(path);
 
-      // Add as a profile photo (not verification)
-      await ref.read(myProfileProvider.notifier).addPhoto(url, makePrimary: false);
+      // Submit to the verification endpoint — status stays pending until an
+      // admin reviews; the profile screen shows the outcome.
+      await ref.read(apiProvider).post('/verification/selfie', body: {'selfieUrl': url});
       widget.onDone();
     });
   }

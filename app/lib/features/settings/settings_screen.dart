@@ -34,7 +34,11 @@ class SettingsScreen extends ConsumerWidget {
               ),
               title: Text(me.name ?? 'Your profile'),
               subtitle: Text(
-                me.verification.isVerified ? 'Verified' : 'Verification pending',
+                switch (me.verification) {
+                  VerificationStatus.verified => 'Verified',
+                  VerificationStatus.failed => 'Verification failed — retake your selfie',
+                  _ => 'Verification pending',
+                },
               ),
               trailing: VerificationBadge(status: me.verification),
             ),

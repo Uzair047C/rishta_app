@@ -69,7 +69,7 @@ class MyProfileNotifier extends RemoteAsync<MyProfile> {
   }
 
   Future<void> addPhoto(String url, {bool makePrimary = false}) async {
-    await api.post('/profile/photo', body: {'url': url, 'makePrimary': makePrimary});
+    await api.post('/profile/photo', body: {'objectPath': url, 'makePrimary': makePrimary});
     await reload();
   }
 }
@@ -152,73 +152,69 @@ final feedFiltersProvider = StateProvider<FeedFilters>((_) => const FeedFilters(
 
 /// -------------------------------------------------------------- feed
 
-/// Feed cursor for keyset pagination.
-class FeedCursor {
-  const FeedCursor({
-    required this.sharedInterests,
-    this.distanceKm,
-    required this.userId,
-  });
+/// Page state for keyset pagination. The cursor is the opaque `nextCursor`
+/// string the backend returns — the client never rebuilds it from card fields.
+class FeedPage {
+  const FeedPage({required this.cards, this.nextCursor});
 
-  final int sharedInterests;
-  final double? distanceKm;
-  final String userId;
-
-  Map<String, Object?> toQuery() => {
-        'cursor': {
-          'shared_interests': sharedInterests,
-          'distance_km': distanceKm,
-          'user_id': userId,
-        },
-      };
+  final List<FeedCard> cards;
+  final String? nextCursor;
 }
 
-final feedProvider = AsyncNotifierProvider<FeedNotifier, List<FeedCard>>(FeedNotifier.new);
+final feedProvider = AsyncNotifierProvider<FeedNotifier, FeedPage>(FeedNotifier.new);
 
-class FeedNotifier extends RemoteAsync<List<FeedCard>> {
-  /// Current cursor for pagination.
-  FeedCursor? _cursor;
+class FeedNotifier extends RemoteAsync<FeedPage> {
+  FeedPage _page = const FeedPage(cards: []);
 
   @override
-  Future<List<FeedCard>> fetch(Api api) {
-    final baseQuery = ref.read(feedFiltersProvider).toQuery();
-    final cursorQuery = _cursor?.toQuery()['cursor'] as Map<String, Object?>?;
+  Future<FeedPage> fetch(Api api) async {
     final query = {
-      ...baseQuery,
-      if (cursorQuery != null) ...cursorQuery,
+      ...ref.read(feedFiltersProvider).toQuery(),
+      if (_page.nextCursor != null) 'cursor': _page.nextCursor,
     };
-    return api.listOf(
-      '/feed',
-      FeedCard.fromJson,
-      query: query,
-      key: 'candidates',
+    final next = await api.get<FeedPage>('/feed', (j) {
+      final map = j as Map<String, dynamic>;
+      return FeedPage(
+        cards: Json.children(map, 'candidates', FeedCard.fromJson),
+        nextCursor: Json.optStr(map, 'nextCursor'),
+      );
+    }, query: query);
+    // Dedupe on append: a repeated scroll trigger or a retry must not render
+    // the same profile twice.
+    final seen = _page.cards.map((c) => c.userId).toSet();
+    _page = FeedPage(
+      cards: [
+        ..._page.cards,
+        ...next.cards.where((c) => !seen.contains(c.userId)),
+      ],
+      nextCursor: next.nextCursor,
     );
+    return _page;
   }
 
-  /// Load next page of feed.
+  /// Load next page of feed; no-op when a page returned no cursor (end of list).
   Future<void> loadMore() async {
     final current = state.valueOrNull;
-    if (current == null || current.length < 5) return; // Only load more when 5 cards remain
-
-    final last = current.last;
-    _cursor = FeedCursor(
-      sharedInterests: last.sharedInterests,
-      distanceKm: last.distanceKm,
-      userId: last.userId,
-    );
-    await reload();
+    if (current == null) return;
+    final keep = _page;
+    try {
+      await reload();
+    } on ApiException {
+      _page = keep; // pagination cursor stays consistent for the retry
+      rethrow;
+    }
   }
 
-  /// Reset to first page.
+  /// Reset to first page (used by filters).
   Future<void> reset() async {
-    _cursor = null;
+    _page = const FeedPage(cards: []);
     await reload();
   }
 
   /// Optimistically drops the swiped card, then reconciles the quota from the
   /// server response — the server's count is authoritative, never an estimate.
   Future<LikeResult?> like(FeedCard card) async {
-    final previous = state.valueOrNull ?? const <FeedCard>[];
+    final previous = _page;
     _drop(card.userId);
     ref.invalidate(subscriptionProvider);
     try {
@@ -226,24 +222,26 @@ class FeedNotifier extends RemoteAsync<List<FeedCard>> {
         return LikeResult.fromJson(j as Map<String, dynamic>);
       });
     } on ApiException {
-      state = AsyncValue.data(previous); // put the card back; the like did not land
+      _page = previous; // put the card back; the like did not land
+      state = AsyncValue.data(previous);
       rethrow;
     }
   }
 
   Future<void> pass(FeedCard card) async {
-    final previous = state.valueOrNull ?? const <FeedCard>[];
+    final previous = _page;
     try {
       await api.post('/feed/pass', body: {'userId': card.userId});
       _drop(card.userId);
     } on ApiException {
+      _page = previous;
       state = AsyncValue.data(previous);
       rethrow;
     }
   }
 
   Future<void> block(FeedCard card, {String? reason}) async {
-    final previous = state.valueOrNull ?? const <FeedCard>[];
+    final previous = _page;
     try {
       await api.post('/feed/block', body: {
         'userId': card.userId,
@@ -252,17 +250,18 @@ class FeedNotifier extends RemoteAsync<List<FeedCard>> {
       _drop(card.userId);
       ref.invalidate(matchesProvider);
     } on ApiException {
+      _page = previous;
       state = AsyncValue.data(previous);
       rethrow;
     }
   }
 
   void _drop(String userId) {
-    final current = state.valueOrNull;
-    if (current == null) return;
-    state = AsyncValue.data(
-      current.where((c) => c.userId != userId).toList(growable: false),
+    _page = FeedPage(
+      cards: _page.cards.where((c) => c.userId != userId).toList(growable: false),
+      nextCursor: _page.nextCursor,
     );
+    state = AsyncValue.data(_page);
   }
 }
 

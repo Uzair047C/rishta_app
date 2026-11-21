@@ -49,7 +49,7 @@ export class AuthService {
     return createHash('sha256').update(token).digest('hex');
   }
 
-  async validateFirebaseIdToken(idToken: string): Promise<{ firebaseUid: string; email: string; emailVerified: boolean; name?: string }> {
+  async validateFirebaseIdToken(idToken: string): Promise<{ firebaseUid: string; email: string; emailVerified: boolean; phone?: string; name?: string }> {
     try {
       const decodedToken = await getAuth(this.firebaseApp).verifyIdToken(idToken, true);
 
@@ -57,6 +57,8 @@ export class AuthService {
         firebaseUid: decodedToken.uid,
         email: decodedToken.email ?? '',
         emailVerified: decodedToken.email_verified ?? false,
+        // firebase.phone_number is present on phone-auth ID tokens
+        phone: (decodedToken as { phone_number?: string }).phone_number,
         name: decodedToken.name ?? undefined,
       };
     } catch (error) {
@@ -67,13 +69,16 @@ export class AuthService {
   async firebaseLogin(idToken: string): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
     const firebasePayload = await this.validateFirebaseIdToken(idToken);
 
-    // Find or create user by Firebase UID
-    const user = await this.usersService.findOrCreateByFirebaseUid(
-      firebasePayload.firebaseUid,
-      firebasePayload.email,
-      firebasePayload.name,
-      firebasePayload.emailVerified // Pass emailVerified
-    );
+    // Phone-auth tokens carry a phone_number claim and no email — route them
+    // to the phone-aware find-or-create.
+    const user = firebasePayload.phone
+      ? await this.findOrCreateByPhone(firebasePayload.firebaseUid, firebasePayload.phone)
+      : await this.usersService.findOrCreateByFirebaseUid(
+          firebasePayload.firebaseUid,
+          firebasePayload.email,
+          firebasePayload.name,
+          firebasePayload.emailVerified,
+        );
 
     // Check if user has completed onboarding
     let profileComplete = false;
@@ -97,6 +102,47 @@ export class AuthService {
       user,
       profileComplete,
     };
+  }
+
+  // Phone OTP: the client (firebase_auth package) handles SMS delivery and
+  // returns an ID token with a phone_number claim — the same /auth/firebase
+  // exchange covers it. findOrCreateByPhone links/creates on that claim.
+
+  private async findOrCreateByPhone(firebaseUid: string, phone: string): Promise<UserRow> {
+    // Existing account with this Firebase UID — attach the phone if missing.
+    let user = await this.db.oneOrNone<UserRow>(
+      'SELECT * FROM users WHERE firebase_uid = $1',
+      [firebaseUid],
+    );
+    if (user) {
+      if (!user.phone) {
+        await this.db.query('UPDATE users SET phone = $1, phone_verified = true WHERE id = $2', [phone, user.id]);
+        user.phone = phone;
+        user.phone_verified = true;
+      }
+      return user;
+    }
+
+    // Existing account already verified with this phone — link the UID.
+    user = await this.db.oneOrNone<UserRow>(
+      'SELECT * FROM users WHERE phone = $1 AND phone_verified = true',
+      [phone],
+    );
+    if (user) {
+      await this.db.query('UPDATE users SET firebase_uid = $1 WHERE id = $2', [firebaseUid, user.id]);
+      user.firebase_uid = firebaseUid;
+      return user;
+    }
+
+    // New phone-only user.
+    const created = await this.db.one<UserRow>(
+      `INSERT INTO users (phone, phone_verified, firebase_uid, email_verified)
+       VALUES ($1, true, $2, false)
+       ON CONFLICT (firebase_uid) DO UPDATE SET phone = EXCLUDED.phone, phone_verified = true
+       RETURNING *`,
+      [phone, firebaseUid],
+    );
+    return created!;
   }
 
   async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {

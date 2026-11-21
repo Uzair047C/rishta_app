@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD, APP_FILTER } from '@nestjs/core';
 
@@ -9,6 +9,7 @@ import { ProfileController } from './profile/profile.controller';
 import { ProfileService } from './profile/profile.service';
 import { VerificationController } from './verification/verification.controller';
 import { VerificationService } from './verification/verification.service';
+import { FACE_VERIFICATION_PROVIDER, faceVerificationProviderFactory } from './verification/face-verification.provider';
 import { FeedController } from './feed/feed.controller';
 import { FeedService } from './feed/feed.service';
 import { MatchesController } from './matches/matches.controller';
@@ -70,6 +71,7 @@ import { REDIS_THROTTLER_STORAGE } from './auth/redis-throttler-storage';
   providers: [
     ProfileService,
     VerificationService,
+    { provide: FACE_VERIFICATION_PROVIDER, useFactory: faceVerificationProviderFactory, inject: [ConfigService] },
     FeedService,
     SubscriptionService,
     ModerationService,

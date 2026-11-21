@@ -129,11 +129,14 @@ class FeedCard extends ProfileSummary {
     super.profession,
     super.maritalStatus,
     super.verification,
-    this.distanceKm,
+    this.distanceBucket,
   });
 
   final int sharedInterests;
-  final double? distanceKm;
+
+  /// Coarse privacy-preserving bucket from the backend ("< 5 km", "5–10 km", …).
+  /// Exact distance is never sent to clients (spec §2.3).
+  final String? distanceBucket;
 
   factory FeedCard.fromJson(Map<String, dynamic> j) {
     final base = ProfileSummary.fromJson(j);
@@ -142,7 +145,7 @@ class FeedCard extends ProfileSummary {
       photos: base.photos,
       name: base.name,
       sharedInterests: Json.intg(j, 'shared_interests'),
-      distanceKm: Json.optDouble(j, 'distance_km'),
+      distanceBucket: Json.optStr(j, 'distance_bucket'),
       age: base.age,
       gender: base.gender,
       location: base.location,

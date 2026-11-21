@@ -1,22 +1,19 @@
-import 'dart:io';
 import 'dart:math';
 
-/// Simple local storage implementation for development.
-/// In production, this should be replaced with a proper cloud storage solution.
+/// Local storage stand-in for development. Returns *object paths* — the same
+/// shape the backend stores in profiles.photos and validates
+/// (`photos/{userId}/file.jpg`). A real cloud-storage client replaces upload()
+/// later; the path contract stays identical.
 abstract final class Storage {
-  static Future<String> upload(String path, File file) async {
-    // For now, we'll simulate upload by returning a mock URL
-    // In a real implementation, this would upload to actual storage
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final random = Random().nextInt(10000);
-    final filename = '$path${path.endsWith('/') ? '' : '/'}$random-$timestamp-${file.path.split('/').last}';
-
-    // Return a mock URL that follows the same format as Firebase Storage URLs
-    return 'https://storage.googleapis.com/mock-bucket/$filename';
+  static Future<String> upload(String objectPath) async {
+    // Dev stub: no bytes leave the device. Wire firebase_storage here when
+    // bucket credentials exist; the returned path is already backend-valid.
+    return objectPath;
   }
 
   /// Timestamped so a replacement never collides with the photo it replaces —
-  /// the profile trigger compares URLs to detect a primary-photo change.
+  /// the profile trigger compares paths to detect a primary-photo change.
+  /// Lives under `photos/` — the backend rejects anything else.
   static String pathFor(String userId, String kind) =>
-      '$kind/$userId/${DateTime.now().millisecondsSinceEpoch}.jpg';
+      'photos/$userId/$kind-${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(10000)}.jpg';
 }

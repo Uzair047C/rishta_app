@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, Inject } from '@nestjs/common'
 import { Db } from '../db/db';
 import { ProfileRow, UserRow, VerificationEventRow, VerificationStatus } from '../db/types';
 import { FaceVerificationProvider, VerificationResult, FACE_VERIFICATION_PROVIDER } from './face-verification.provider';
+import { PhotosService } from '../photos/photos.service';
 
 export interface VerificationStatusView {
   status: VerificationStatus;
@@ -15,6 +16,7 @@ export class VerificationService {
 
   constructor(
     private readonly db: Db,
+    private readonly photos: PhotosService,
     @Inject(FACE_VERIFICATION_PROVIDER) private readonly provider: FaceVerificationProvider,
   ) {}
 
@@ -25,13 +27,14 @@ export class VerificationService {
    * With no provider configured, fails closed and queues for human review.
    * Never auto-approves — all verifications require admin review.
    */
-  async submit(user: UserRow, livenessSessionId?: string, selfieUrl?: string): Promise<VerificationStatusView> {
+  async submit(user: UserRow, selfieUrl: string): Promise<VerificationStatusView> {
     const profile = await this.db.one<ProfileRow>('SELECT * FROM profiles WHERE user_id = $1', [user.id]);
     const primaryPhoto = profile?.photos?.[0];
     if (!primaryPhoto) throw new BadRequestException('no_primary_photo');
 
-    // Verify using the configured provider
-    const result = await this.provider.verify(primaryPhoto, selfieUrl ?? '');
+    // Verify using the configured provider — photos are stored as object paths;
+    // the provider needs fetchable URLs.
+    const result = await this.provider.verify(this.photos.getStorageUrl(primaryPhoto), selfieUrl);
 
     // Always set to pending — admin must explicitly approve/reject
     const status: VerificationStatus = 'pending';
@@ -41,7 +44,7 @@ export class VerificationService {
 
     return this.record(
       user.id,
-      selfieUrl ?? `selfie://${livenessSessionId ?? Date.now()}`,
+      selfieUrl,
       result.matchScore,
       result.livenessScore,
       status,

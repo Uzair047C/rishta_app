@@ -65,11 +65,9 @@ class _PhotosScreenState extends ConsumerState<PhotosScreen> with FormProgress {
 
     await progress(() async {
       final profile = ref.read(myProfileProvider).valueOrNull;
-      final url = await Storage.upload(
-        Storage.pathFor(profile?.userId ?? 'unknown', 'profiles'),
-        File(picked.path),
-      );
-      await ref.read(myProfileProvider.notifier).addPhoto(url, makePrimary: primary);
+      final path = Storage.pathFor(profile?.userId ?? 'unknown', 'profiles');
+      await Storage.upload(path);
+      await ref.read(myProfileProvider.notifier).addPhoto(path, makePrimary: primary);
     });
   }
 

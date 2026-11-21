@@ -7,7 +7,9 @@ import { ConfigService } from '@nestjs/config';
 import { Db, ExtendedQueryable } from '../db/db';
 import { UserRow } from '../db/types';
 
-// Mock firebase-admin modules
+// Mock firebase-admin modules. verifyIdToken is a single shared mock so tests
+// can override per-call (getAuth() must return the same jest.fn every time).
+const mockVerifyIdToken = jest.fn();
 jest.mock('firebase-admin/app', () => ({
   initializeApp: jest.fn(),
   getApps: jest.fn(() => []),
@@ -16,14 +18,7 @@ jest.mock('firebase-admin/app', () => ({
 }), { virtual: true });
 
 jest.mock('firebase-admin/auth', () => ({
-  getAuth: jest.fn(() => ({
-    verifyIdToken: jest.fn().mockResolvedValue({
-      uid: 'firebase-uid-123',
-      email: 'test@example.com',
-      email_verified: true,
-      name: 'Test User',
-    }),
-  })),
+  getAuth: jest.fn(() => ({ verifyIdToken: mockVerifyIdToken })),
 }), { virtual: true });
 
 describe('AuthService', () => {
@@ -54,6 +49,13 @@ describe('AuthService', () => {
   };
 
   beforeEach(async () => {
+    mockVerifyIdToken.mockResolvedValue({
+      uid: 'firebase-uid-123',
+      email: 'test@example.com',
+      email_verified: true,
+      name: 'Test User',
+    });
+
     const mockUsersService = {
       findOrCreateByFirebaseUid: jest.fn(),
       requireOnboarded: jest.fn(),
@@ -163,6 +165,56 @@ describe('AuthService', () => {
 
       // findOrCreateByFirebaseUid should be called twice but return same user
       expect(usersService.findOrCreateByFirebaseUid).toHaveBeenCalledTimes(2);
+    });
+
+    it('should route phone-auth tokens to findOrCreateByPhone', async () => {
+      // Phone-auth ID tokens carry a phone_number claim and no email.
+      mockVerifyIdToken.mockResolvedValueOnce({
+        uid: 'phone-uid-1',
+        email: null,
+        email_verified: false,
+        phone_number: '+15551234567',
+      });
+
+      const phoneUser: UserRow = { ...mockUser, email: null, phone: '+15551234567', phone_verified: true };
+      db.oneOrNone.mockResolvedValue(null); // no existing user by uid or phone
+      db.one.mockResolvedValue(phoneUser); // INSERT ... RETURNING
+      usersService.requireOnboarded.mockRejectedValue(new Error('profile_incomplete'));
+      jwtService.sign.mockReturnValue('access-token');
+      db.query.mockResolvedValue({ rows: [], rowCount: 1 });
+
+      const result = await service.firebaseLogin('phone-id-token');
+
+      expect(usersService.findOrCreateByFirebaseUid).not.toHaveBeenCalled();
+      expect(db.oneOrNone).toHaveBeenCalledWith(
+        'SELECT * FROM users WHERE firebase_uid = $1',
+        ['phone-uid-1'],
+      );
+      expect(result.user.phone).toBe('+15551234567');
+      expect(result.user.phone_verified).toBe(true);
+      expect(result.profileComplete).toBe(false);
+    });
+
+    it('should link a Firebase UID to an existing verified phone account', async () => {
+      mockVerifyIdToken.mockResolvedValueOnce({
+        uid: 'phone-uid-2',
+        email: null,
+        email_verified: false,
+        phone_number: '+15550009999',
+      });
+
+      const existing: UserRow = { ...mockUser, email: null, phone: '+15550009999', phone_verified: true, firebase_uid: null };
+      db.oneOrNone
+        .mockResolvedValueOnce(null) // by firebase_uid: not found
+        .mockResolvedValueOnce(existing); // by verified phone: found
+      usersService.requireOnboarded.mockResolvedValue(existing);
+      jwtService.sign.mockReturnValue('access-token');
+      db.query.mockResolvedValue({ rows: [], rowCount: 1 });
+
+      const result = await service.firebaseLogin('phone-id-token');
+
+      expect(result.user.id).toBe(existing.id);
+      expect(result.profileComplete).toBe(true);
     });
   });
 

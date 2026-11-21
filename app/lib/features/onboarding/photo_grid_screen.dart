@@ -87,7 +87,6 @@ class _PhotoGridScreenState extends ConsumerState<PhotoGridScreen> {
       final profile = ref.read(myProfileProvider).valueOrNull;
       final url = await Storage.upload(
         Storage.pathFor(profile?.userId ?? 'unknown', 'profiles'),
-        File(picked.path),
       );
 
       setState(() {
