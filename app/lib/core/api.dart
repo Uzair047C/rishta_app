@@ -235,10 +235,10 @@ class Api {
         // Retry the request with new token
         return await this.request<T>(method, path, parse: parse, body: body, query: query, requiresAuth: requiresAuth, retried: true);
       }
-      // Refresh failed - clear auth state
-      await _authStorage.clear();
-      clearCachedToken();
-      throw ApiException(response.statusCode, 'not_registered', response.body);
+      // Refresh failed - _tryRefreshToken already cleared storage if it was an auth failure (401/400)
+      // For network errors, it returns false WITHOUT clearing storage
+      // So we only throw the original 401 error; the caller can retry
+      throw ApiException(response.statusCode, _messageOf(decoded), response.body);
     }
 
     if (response.statusCode >= 400) {

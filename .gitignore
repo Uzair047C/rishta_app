@@ -119,6 +119,8 @@ Thumbs.db
 .env.*.local
 *.pem
 *.key
+GoogleService-Info.plist
+google-services.json
 
 # Coverage
 coverage/

@@ -4,27 +4,38 @@ import 'package:google_sign_in/google_sign_in.dart';
 /// Service for handling Google Sign-In flow.
 /// Uses google_sign_in package to obtain Google ID token.
 class GoogleSignInService {
+  static GoogleSignIn? _instance;
   static String? _webClientId;
 
   /// Initialize Google Sign-In - must be called before signIn() on web.
   /// Reads client ID from JS global (flutter_bootstrap.js).
   static Future<void> initialize() async {
     if (kIsWeb) {
-      _webClientId = _getGoogleClientId();
+      _webClientId = await _getGoogleClientId();
       if (_webClientId == null || _webClientId!.isEmpty) {
         throw GoogleSignInError('GOOGLE_SERVER_CLIENT_ID not configured in flutter_bootstrap.js');
       }
     }
-    // No-op for other platforms; GoogleSignIn initializes lazily.
+    // Initialize the singleton instance
+    _instance = GoogleSignIn(
+      scopes: ['email', 'profile', 'openid'],
+      // serverClientId: the OAuth client ID for your backend (Android/iOS only)
+      serverClientId: kIsWeb ? null : const String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID'),
+      // clientId: the OAuth client ID for the current platform
+      // - Web: uses the Web client ID from JS global
+      // - Android/iOS: not needed (uses serverClientId)
+      clientId: kIsWeb ? _webClientId : null,
+    );
   }
 
-  static GoogleSignIn get _googleSignIn => GoogleSignIn(
-    scopes: ['email', 'profile', 'openid'],
-    // serverClientId is only for Android/iOS (not supported on Web)
-    serverClientId: kIsWeb ? null : const String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID'),
-    // For web, clientId is required - pass the Web client ID from JS global
-    clientId: kIsWeb ? _webClientId : const String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID'),
-  );
+  static GoogleSignIn get _googleSignIn {
+    _instance ??= GoogleSignIn(
+      scopes: ['email', 'profile', 'openid'],
+      serverClientId: kIsWeb ? null : const String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID'),
+      clientId: kIsWeb ? _webClientId : null,
+    );
+    return _instance!;
+  }
 
   /// Sign in with Google and get the ID token.
   /// Returns the ID token string, or null if user cancelled.
@@ -54,6 +65,7 @@ class GoogleSignInService {
   /// Sign out from Google.
   static Future<void> signOut() async {
     await _googleSignIn.signOut();
+    _instance = null; // Allow re-initialization with different config
   }
 
   /// Check if user is currently signed in to Google.
@@ -75,15 +87,4 @@ class GoogleSignInError implements Exception {
 
 /// Gets the Google client ID from JS global (web only).
 /// Returns null on non-web platforms or if not configured.
-String? _getGoogleClientId() {
-  if (kIsWeb) {
-    // On web, this reads from the JS global set in flutter_bootstrap.js
-    // The actual implementation is in google_signin_web.dart
-    return _getGoogleClientIdWeb();
-  }
-  return null;
-}
-
-/// Web-specific implementation - only compiled for web.
-/// Uses `dart:js_interop` which is available on web.
-String? _getGoogleClientIdWeb() => null;
+external Future<String?> _getGoogleClientId();

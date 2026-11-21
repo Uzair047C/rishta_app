@@ -16,6 +16,8 @@ dependencies:
   # Auth
   google_sign_in: ^6.2.1
   flutter_secure_storage: ^9.2.2
+  firebase_core: ^3.6.0
+  firebase_auth: ^5.3.0
 
   # Chat
   stream_chat_flutter: ^9.0.0
@@ -32,6 +34,7 @@ dependencies:
   cached_network_image: ^3.4.1
   google_fonts: ^6.2.1
   flutter_animate: ^4.5.2
+  js: ^0.6.7
   # media_kit_libs_video: ^1.0.7  # Temporarily disabled to fix Windows build
 
 dev_dependencies:

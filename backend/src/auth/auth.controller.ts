@@ -11,6 +11,13 @@ export class AuthController {
 
   // /auth/* 10/min/IP
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('google')
+  @Public()
+  async googleLogin(@Body() { idToken }: { idToken: string }) {
+    return this.authService.firebaseLogin(idToken);
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('firebase')
   @Public()
   async firebaseLogin(@Body() { idToken }: { idToken: string }) {

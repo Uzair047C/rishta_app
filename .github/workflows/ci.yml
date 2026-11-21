@@ -8,7 +8,7 @@ on:
 
 env:
   NODE_VERSION: '22'
-  FLUTTER_VERSION: '3.24.3'
+  FLUTTER_VERSION: '3.24.5'
 
 jobs:
   # Backend: typecheck, lint, tests with Postgres
@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgis/postgis:16-3.4
         env:
           POSTGRES_USER: rishta
           POSTGRES_PASSWORD: rishta

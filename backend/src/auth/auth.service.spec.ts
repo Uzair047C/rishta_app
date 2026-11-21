@@ -13,7 +13,7 @@ jest.mock('firebase-admin/app', () => ({
   getApps: jest.fn(() => []),
   cert: jest.fn(),
   App: jest.fn(),
-}));
+}), { virtual: true });
 
 jest.mock('firebase-admin/auth', () => ({
   getAuth: jest.fn(() => ({
@@ -24,7 +24,7 @@ jest.mock('firebase-admin/auth', () => ({
       name: 'Test User',
     }),
   })),
-}));
+}), { virtual: true });
 
 describe('AuthService', () => {
   let service: AuthService;

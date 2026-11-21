@@ -95,13 +95,14 @@ describe('FeedService', () => {
       likeInsert?: any;
       subscriptionUpdate?: any;
       subscriptionSelect?: any;
+      subscriptionSelectRemaining?: any;
       reciprocalCheck?: any;
       matchInsert?: any;
     }) => {
       db.tx.mockImplementationOnce(async (fn: any) => {
         const userCheck = responses.userCheck ?? mockOnboardedProfile;
         const targetCheck = responses.targetCheck ?? mockTargetProfile;
-        const target = responses.target ?? { id: targetId, status: 'active', verification_status: 'verified' };
+        const target = responses.target !== undefined ? responses.target : { id: targetId, status: 'active', verification_status: 'verified' };
         const user = responses.user ?? { id: userId, status: 'active', verification_status: 'verified' };
         const existingMatch = responses.existingMatch ?? null;
 
@@ -109,6 +110,8 @@ describe('FeedService', () => {
           query: jest.fn().mockImplementation((sql: string) => {
             if (sql.includes('INSERT INTO likes')) return responses.likeInsert ?? { rowCount: 1, rows: [{ id: 'like-id' }] };
             if (sql.includes('UPDATE subscriptions')) return responses.subscriptionUpdate ?? { rowCount: 1, rows: [{ likes_remaining_today: 9 }] };
+            if (sql.includes('SELECT status, likes_remaining_today FROM subscriptions')) return responses.subscriptionSelect ?? { rowCount: 1, rows: [{ status: 'active', likes_remaining_today: 0 }] };
+            if (sql.includes('SELECT likes_remaining_today FROM subscriptions WHERE user_id')) return responses.subscriptionSelectRemaining ?? { rowCount: 1, rows: [{ likes_remaining_today: 10 }] };
             if (sql.includes('SELECT 1 FROM likes WHERE from_user_id')) return responses.reciprocalCheck ?? { rowCount: 0, rows: [] };
             if (sql.includes('INSERT INTO matches')) return responses.matchInsert ?? { rowCount: 1, rows: [{ id: 'match-id' }] };
             if (sql.includes('INSERT INTO outbox')) return { rowCount: 1, rows: [] };
@@ -207,8 +210,9 @@ describe('FeedService', () => {
         target: { id: targetId, status: 'active', verification_status: 'verified' },
         user: { id: userId, status: 'active', verification_status: 'verified' },
       });
-      await expect(service.like(userId, targetId)).rejects.toThrow(ConflictException);
-      await expect(service.like(userId, targetId)).rejects.toThrow('unavailable');
+      const promise = service.like(userId, targetId);
+      await expect(promise).rejects.toThrow(ConflictException);
+      await expect(promise).rejects.toThrow('unavailable');
     });
 
     it('should throw BadRequestException for unknown_user', async () => {
@@ -219,8 +223,9 @@ describe('FeedService', () => {
         target: null, // target not found
         user: { id: userId, status: 'active', verification_status: 'verified' },
       });
-      await expect(service.like(userId, targetId)).rejects.toThrow(BadRequestException);
-      await expect(service.like(userId, targetId)).rejects.toThrow('unknown_user');
+      const promise = service.like(userId, targetId);
+      await expect(promise).rejects.toThrow(BadRequestException);
+      await expect(promise).rejects.toThrow('unknown_user');
     });
 
     it('should throw ConflictException unavailable when target not active', async () => {
@@ -231,8 +236,9 @@ describe('FeedService', () => {
         target: { id: targetId, status: 'banned', verification_status: 'verified' },
         user: { id: userId, status: 'active', verification_status: 'verified' },
       });
-      await expect(service.like(userId, targetId)).rejects.toThrow(ConflictException);
-      await expect(service.like(userId, targetId)).rejects.toThrow('unavailable');
+      const promise = service.like(userId, targetId);
+      await expect(promise).rejects.toThrow(ConflictException);
+      await expect(promise).rejects.toThrow('unavailable');
     });
 
     it('should throw ConflictException target_not_verified when target not verified', async () => {
@@ -243,8 +249,9 @@ describe('FeedService', () => {
         target: { id: targetId, status: 'active', verification_status: 'pending' },
         user: { id: userId, status: 'active', verification_status: 'verified' },
       });
-      await expect(service.like(userId, targetId)).rejects.toThrow(ConflictException);
-      await expect(service.like(userId, targetId)).rejects.toThrow('target_not_verified');
+      const promise = service.like(userId, targetId);
+      await expect(promise).rejects.toThrow(ConflictException);
+      await expect(promise).rejects.toThrow('target_not_verified');
     });
 
     it('should throw ConflictException subscription_inactive when user not active', async () => {
@@ -255,8 +262,9 @@ describe('FeedService', () => {
         target: { id: targetId, status: 'active', verification_status: 'verified' },
         user: { id: userId, status: 'banned', verification_status: 'verified' },
       });
-      await expect(service.like(userId, targetId)).rejects.toThrow(ConflictException);
-      await expect(service.like(userId, targetId)).rejects.toThrow('subscription_inactive');
+      const promise = service.like(userId, targetId);
+      await expect(promise).rejects.toThrow(ConflictException);
+      await expect(promise).rejects.toThrow('subscription_inactive');
     });
 
     it('should throw ConflictException user_not_verified when user not verified', async () => {
@@ -267,8 +275,9 @@ describe('FeedService', () => {
         target: { id: targetId, status: 'active', verification_status: 'verified' },
         user: { id: userId, status: 'active', verification_status: 'pending' },
       });
-      await expect(service.like(userId, targetId)).rejects.toThrow(ConflictException);
-      await expect(service.like(userId, targetId)).rejects.toThrow('user_not_verified');
+      const promise = service.like(userId, targetId);
+      await expect(promise).rejects.toThrow(ConflictException);
+      await expect(promise).rejects.toThrow('user_not_verified');
     });
 
     it('should throw ConflictException previously_unmatched when pair was unmatched', async () => {
@@ -280,8 +289,9 @@ describe('FeedService', () => {
         user: { id: userId, status: 'active', verification_status: 'verified' },
         existingMatch: { id: 'existing-match', unmatched_at: new Date(), unmatched_by: userId },
       });
-      await expect(service.like(userId, targetId)).rejects.toThrow(ConflictException);
-      await expect(service.like(userId, targetId)).rejects.toThrow('previously_unmatched');
+      const promise = service.like(userId, targetId);
+      await expect(promise).rejects.toThrow(ConflictException);
+      await expect(promise).rejects.toThrow('previously_unmatched');
     });
 
     it('should allow like when existing match was NOT unmatched', async () => {
@@ -312,6 +322,7 @@ describe('FeedService', () => {
         existingMatch: null,
         likeInsert: { rowCount: 0, rows: [] }, // INSERT like - rowCount 0 means re-like
         subscriptionUpdate: { rowCount: 1, rows: [{ likes_remaining_today: 10 }] }, // SELECT subscription (no UPDATE)
+        subscriptionSelectRemaining: { rowCount: 1, rows: [{ likes_remaining_today: 10 }] }, // SELECT remaining
         reciprocalCheck: { rowCount: 0, rows: [] },
       });
 
@@ -329,35 +340,37 @@ describe('FeedService', () => {
         existingMatch: null,
         likeInsert: { rowCount: 1, rows: [{ id: 'like-id' }] },
         subscriptionUpdate: { rowCount: 0, rows: [] }, // UPDATE subscription - NO ROWS (quota exhausted)
-        // Note: The code then does a SELECT subscription to check status
-        // We don't have a way to mock that in the current setup, but the error should still be thrown
+        subscriptionSelect: { rowCount: 1, rows: [{ status: 'active', likes_remaining_today: 0 }] }, // SELECT subscription
       });
-      await expect(service.like(userId, targetId)).rejects.toThrow(ConflictException);
-      await expect(service.like(userId, targetId)).rejects.toThrow('no_likes_remaining');
+      const promise = service.like(userId, targetId);
+      await expect(promise).rejects.toThrow(ConflictException);
+      await expect(promise).rejects.toThrow('no_likes_remaining');
     });
 
     it('should throw ConflictException subscription_inactive when subscription not active', async () => {
       setupTxMock({
-        userCheck: { name: 'User', photos: ['p.jpg'], gender: 'male' },
-        targetCheck: { name: 'Target', photos: ['p.jpg'], gender: 'female' },
+        userCheck: mockOnboardedProfile,
+        targetCheck: mockTargetProfile,
         blocked: { n: 0 },
         target: { id: targetId, status: 'active', verification_status: 'verified' },
         user: { id: userId, status: 'banned', verification_status: 'verified' },
       });
-      await expect(service.like(userId, targetId)).rejects.toThrow(ConflictException);
-      await expect(service.like(userId, targetId)).rejects.toThrow('subscription_inactive');
+      const promise = service.like(userId, targetId);
+      await expect(promise).rejects.toThrow(ConflictException);
+      await expect(promise).rejects.toThrow('subscription_inactive');
     });
 
     it('should throw ConflictException user_not_verified when user not verified', async () => {
       setupTxMock({
-        userCheck: { name: 'User', photos: ['p.jpg'], gender: 'male' },
-        targetCheck: { name: 'Target', photos: ['p.jpg'], gender: 'female' },
+        userCheck: mockOnboardedProfile,
+        targetCheck: mockTargetProfile,
         blocked: { n: 0 },
         target: { id: targetId, status: 'active', verification_status: 'verified' },
         user: { id: userId, status: 'active', verification_status: 'pending' },
       });
-      await expect(service.like(userId, targetId)).rejects.toThrow(ConflictException);
-      await expect(service.like(userId, targetId)).rejects.toThrow('user_not_verified');
+      const promise = service.like(userId, targetId);
+      await expect(promise).rejects.toThrow(ConflictException);
+      await expect(promise).rejects.toThrow('user_not_verified');
     });
   });
 

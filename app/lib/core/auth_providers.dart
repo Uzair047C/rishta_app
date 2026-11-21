@@ -1,8 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'api.dart';
 import 'auth_storage.dart';
-import 'google_signin_service.dart';
+import 'auth/google_signin_service.dart';
 import 'models.dart';
 import 'providers.dart';
 
@@ -94,8 +95,17 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (!profile.isComplete) {
         state = state.copyWith(status: AuthStatus.onboarding);
       }
+    } on ApiException catch (e) {
+      // Only clear session on auth failures (401/403), not network errors
+      if (e.statusCode == 401 || e.statusCode == 403) {
+        await _authStorage.clear();
+        state = const AuthState(status: AuthStatus.unauthenticated);
+      } else {
+        // Network/5xx error - keep tokens, show retry state
+        state = const AuthState(status: AuthStatus.unauthenticated, error: 'Network error. Tap to retry.');
+      }
     } catch (e) {
-      // Session invalid or expired
+      // Other unexpected errors - clear session
       await _authStorage.clear();
       state = const AuthState(status: AuthStatus.unauthenticated);
     }
@@ -159,6 +169,153 @@ class AuthNotifier extends StateNotifier<AuthState> {
       );
       rethrow;
     }
+  }
+
+  /// Sign up with email and password via Firebase Auth.
+  /// Sends email verification, then exchanges Firebase ID token for app tokens.
+  Future<void> signUpWithEmail(String email, String password) async {
+    state = state.copyWith(status: AuthStatus.authenticating, error: null);
+
+    try {
+      final credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      // Send email verification
+      await credential.user?.sendEmailVerification();
+
+      // Get Firebase ID token
+      final idToken = await credential.user!.getIdToken();
+      if (idToken == null) {
+        throw Exception('Failed to obtain Firebase ID token');
+      }
+
+      // Exchange Firebase ID token for app tokens
+      final response = await _api.post<Map<String, dynamic>>(
+        '/auth/firebase',
+        body: {'idToken': idToken},
+        requiresAuth: false,
+      );
+
+      final accessToken = response['accessToken'] as String;
+      final refreshToken = response['refreshToken'] as String;
+      final user = response['user'] as Map<String, dynamic>;
+      final profileComplete = response['profileComplete'] as bool;
+      final userId = user['id'] as String;
+
+      await _authStorage.setTokens(
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        userId: userId,
+      );
+
+      state = AuthState(
+        status: profileComplete ? AuthStatus.authenticated : AuthStatus.onboarding,
+        userId: userId,
+        profileComplete: profileComplete,
+      );
+    } on FirebaseAuthException catch (e) {
+      state = state.copyWith(
+        status: AuthStatus.unauthenticated,
+        error: _mapFirebaseAuthError(e.code),
+      );
+      rethrow;
+    } on ApiException catch (e) {
+      state = state.copyWith(
+        status: AuthStatus.unauthenticated,
+        error: e.error.message,
+      );
+      rethrow;
+    } catch (e) {
+      state = state.copyWith(
+        status: AuthStatus.unauthenticated,
+        error: 'Sign up failed: $e',
+      );
+      rethrow;
+    }
+  }
+
+  /// Sign in with email and password via Firebase Auth.
+  /// Checks email verification, then exchanges Firebase ID token for app tokens.
+  Future<void> signInWithEmail(String email, String password) async {
+    state = state.copyWith(status: AuthStatus.authenticating, error: null);
+
+    try {
+      final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      // Check email verification
+      if (!credential.user!.emailVerified) {
+        await credential.user!.sendEmailVerification();
+        throw Exception('Email not verified. A new verification email has been sent.');
+      }
+
+      // Get Firebase ID token
+      final idToken = await credential.user!.getIdToken();
+      if (idToken == null) {
+        throw Exception('Failed to obtain Firebase ID token');
+      }
+
+      // Exchange Firebase ID token for app tokens
+      final response = await _api.post<Map<String, dynamic>>(
+        '/auth/firebase',
+        body: {'idToken': idToken},
+        requiresAuth: false,
+      );
+
+      final accessToken = response['accessToken'] as String;
+      final refreshToken = response['refreshToken'] as String;
+      final user = response['user'] as Map<String, dynamic>;
+      final profileComplete = response['profileComplete'] as bool;
+      final userId = user['id'] as String;
+
+      await _authStorage.setTokens(
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        userId: userId,
+      );
+
+      state = AuthState(
+        status: profileComplete ? AuthStatus.authenticated : AuthStatus.onboarding,
+        userId: userId,
+        profileComplete: profileComplete,
+      );
+    } on FirebaseAuthException catch (e) {
+      state = state.copyWith(
+        status: AuthStatus.unauthenticated,
+        error: _mapFirebaseAuthError(e.code),
+      );
+      rethrow;
+    } on ApiException catch (e) {
+      state = state.copyWith(
+        status: AuthStatus.unauthenticated,
+        error: e.error.message,
+      );
+      rethrow;
+    } catch (e) {
+      state = state.copyWith(
+        status: AuthStatus.unauthenticated,
+        error: 'Sign in failed: $e',
+      );
+      rethrow;
+    }
+  }
+
+  String _mapFirebaseAuthError(String code) {
+    return switch (code) {
+      'weak-password' => 'Password is too weak (min 6 characters).',
+      'email-already-in-use' => 'An account with this email already exists.',
+      'invalid-email' => 'Invalid email address.',
+      'user-not-found' => 'No account found with this email.',
+      'wrong-password' => 'Incorrect password.',
+      'user-disabled' => 'This account has been disabled.',
+      'too-many-requests' => 'Too many attempts. Please try again later.',
+      'operation-not-allowed' => 'Email/password sign-in is not enabled.',
+      _ => 'Authentication failed: $code',
+    };
   }
 
   /// Sign out and clear all auth data.
