@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
 
 import '../../core/models.dart';
 import '../../core/providers.dart';
+import '../../core/purchases.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 
@@ -12,16 +14,54 @@ import '../../core/widgets.dart';
 /// Spec 1.2 — the screen must make clear that a lapse gates *new likes only*.
 /// Existing matches and chats stay open, so nothing here offers to "restore"
 /// them; there is nothing to restore.
-class SubscriptionScreen extends ConsumerWidget {
+class SubscriptionScreen extends ConsumerStatefulWidget {
   const SubscriptionScreen({super.key});
 
+  @override
+  ConsumerState<SubscriptionScreen> createState() => _SubscriptionScreenState();
+}
+
+class _SubscriptionScreenState extends ConsumerState<SubscriptionScreen> {
   static const _plans = [
     (id: 'rishta_plus_monthly', name: 'Plus', priceLabel: 'monthly', likes: 50),
     (id: 'rishta_gold_monthly', name: 'Gold', priceLabel: 'monthly', likes: 999),
   ];
 
+  /// Real store prices when billing is available; null falls back to the
+  /// hard-coded cards so dev builds without API keys still render the screen.
+  late final Future<Offerings?> _offerings = _loadOfferings();
+
+  Future<Offerings?> _loadOfferings() async {
+    try {
+      final me = await ref.read(myProfileProvider.future);
+      await PurchasesService.init(me.userId);
+      if (!PurchasesService.available) return null;
+      return await PurchasesService.fetchOfferings();
+    } catch (_) {
+      return null; // offerings are a price upgrade; the fallback covers failure
+    }
+  }
+
+  Future<void> _purchase(Package package) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final completed = await PurchasesService.purchase(package);
+      if (!completed || !mounted) return; // user cancelled: nothing to say
+      ref.invalidate(subscriptionProvider); // server truth arrives via webhook
+      messenger.showSnackBar(const SnackBar(content: Text('Subscription updated.')));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(messageFor(e))));
+    }
+  }
+
+  void _billingUnavailable() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Billing unavailable in this build.')),
+    );
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final subscription = ref.watch(subscriptionProvider);
 
     return Scaffold(
@@ -56,31 +96,55 @@ class SubscriptionScreen extends ConsumerWidget {
               const SizedBox(height: Tokens.spaceLg),
             ],
 
-            const SectionHeader('Plans'),
-            for (final plan in _plans)
-              Card(
-                child: ListTile(
-                  title: Text(plan.name),
-                  subtitle: Text('${plan.likes}+ likes a day · billed ${plan.priceLabel}'),
-                  trailing: FilledButton(
-                    onPressed: () => _purchase(context, plan.id),
-                    child: const Text('Choose'),
-                  ),
-                ),
-              ),
+            FutureBuilder<Offerings?>(
+              future: _offerings,
+              builder: (context, snapshot) {
+                final offering = snapshot.data;
+                final matched = offering == null
+                    ? null
+                    : [
+                        for (final plan in _plans)
+                          for (final package in offering.current?.availablePackages ?? const <Package>[])
+                            if (package.storeProduct.identifier == plan.id) (plan, package),
+                      ];
+                return Column(
+                  children: [
+                    const SectionHeader('Plans'),
+                    if (matched != null && matched.isNotEmpty)
+                      for (final (plan, package) in matched)
+                        Card(
+                          child: ListTile(
+                            title: Text(plan.name),
+                            subtitle: Text(
+                              '${plan.likes}+ likes a day · ${package.storeProduct.priceString}',
+                            ),
+                            trailing: FilledButton(
+                              onPressed: () => _purchase(package),
+                              child: const Text('Choose'),
+                            ),
+                          ),
+                        )
+                    else
+                      for (final plan in _plans)
+                        Card(
+                          child: ListTile(
+                            title: Text(plan.name),
+                            subtitle:
+                                Text('${plan.likes}+ likes a day · billed ${plan.priceLabel}'),
+                            trailing: FilledButton(
+                              onPressed: _billingUnavailable,
+                              child: const Text('Choose'),
+                            ),
+                          ),
+                        ),
+                  ],
+                );
+              },
+            ),
             const SizedBox(height: Tokens.spaceLg),
           ],
         ),
       ),
-    );
-  }
-
-  /// Purchase hook. The store integration (RevenueCat, wrapping Play Billing on
-  /// Android and StoreKit on iOS) is the remaining piece of build step 7 — the
-  /// server side it feeds is already live at POST /subscription/webhook.
-  void _purchase(BuildContext context, String productId) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Billing for "$productId" is not wired up yet.')),
     );
   }
 }

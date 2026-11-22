@@ -18,6 +18,10 @@ dependencies:
   flutter_secure_storage: ^9.2.2
   firebase_core: ^3.6.0
   firebase_auth: ^5.3.0
+  firebase_messaging: ^15.2.10
+
+  # Purchases (RevenueCat wraps Play Billing / StoreKit)
+  purchases_flutter: ^11.0.4
 
   # Chat
   stream_chat_flutter: ^9.0.0

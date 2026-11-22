@@ -2,7 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/core.dart';
+import '../../core/push.dart';
 import '../../main.dart';
+
+/// Fires once per app run, the first time auth reaches AuthStatus.authenticated
+/// (login, onboarding finish, or restored session): registers the FCM token
+/// with the backend, which requires an authed user.
+bool _pushRegistered = false;
+
+Future<void> _registerPush(WidgetRef ref) async {
+  try {
+    final token = await registerPush();
+    if (token == null) return;
+    await ref.read(apiProvider).post(
+          '/notifications/device',
+          body: {'token': token, 'platform': pushPlatform()},
+        );
+  } catch (_) {
+    debugPrint('push registration failed');
+  }
+}
 
 /// Auth wrapper that routes to the appropriate screen based on auth state.
 /// - Unauthenticated: LoginScreen
@@ -14,6 +33,16 @@ class AuthWrapper extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authProvider);
+
+    ref.listen<AuthState>(authProvider, (prev, next) {
+      if (next.status == AuthStatus.authenticated && !_pushRegistered) {
+        _pushRegistered = true;
+        _registerPush(ref);
+        listenForTokenRefresh((token, platform) => ref
+            .read(apiProvider)
+            .post('/notifications/device', body: {'token': token, 'platform': platform}));
+      }
+    });
 
     return switch (authState.status) {
       AuthStatus.initial => const _LoadingScreen(),

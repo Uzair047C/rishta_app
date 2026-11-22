@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { SendResponse } from 'firebase-admin/messaging';
 import { Db } from '../db/db';
 
 export type PushCategory = 'new_like' | 'new_match' | 'new_message';
@@ -10,20 +11,43 @@ const PREFERENCE_COLUMN: Record<PushCategory, string> = {
   new_message: 'new_message',
 };
 
+/** FCM errors that mean "this token is dead, stop sending to it." */
+const DEAD_TOKEN_CODES = new Set([
+  'messaging/registration-token-not-registered',
+  'messaging/invalid-registration-token',
+]);
+
+/** Push copy per category. Generic on purpose: no other users' PII in pushes. */
+const BODY: Record<PushCategory, string> = {
+  new_like: 'Someone liked your profile.',
+  new_match: 'You have a new match. Say hello!',
+  new_message: 'You have a new message.',
+};
+
+const TITLE: Record<PushCategory, string> = {
+  new_like: 'New like!',
+  new_match: "It's a match!",
+  new_message: 'New message!',
+};
+
 @Injectable()
 export class PushService {
   private readonly log = new Logger(PushService.name);
 
   constructor(private readonly db: Db) {}
 
+  /** Lazy, like StreamService's client: missing Firebase app throws at send time, not boot. */
+  private get messaging() {
+    return require('firebase-admin/messaging').getMessaging();
+  }
+
   /**
    * Spec 1.2/2.1 — triggered server-side on like/match/message. Respects the
    * recipient's per-category toggle and never throws: a push failure must not
    * fail the like that caused it.
    *
-   * With Firebase removed, push notifications are simulated in development.
-   * In production, you would integrate with another push notification service
-   * (like AWS SNS, APNs directly, or a custom webhook).
+   * Sends via FCM (sendEachForMulticast) using the Firebase app the auth
+   * service already initialized; dead tokens are pruned from FCM feedback.
    */
   async toUser(userId: string, category: PushCategory, data: Record<string, string>): Promise<void> {
     try {
@@ -41,25 +65,25 @@ export class PushService {
       );
       if (!tokens.length) return;
 
-      // Simulate push notification sending for development
-      // In production without Firebase, implement actual push notification logic here
-      this.log.debug(`Push notification simulated: userId=${userId}, category=${category}, data=${JSON.stringify(data)}, tokenCount=${tokens.length}`);
+      const res = await this.messaging.sendEachForMulticast({
+        notification: { title: TITLE[category], body: BODY[category] },
+        data: { type: category, ...data },
+        tokens: tokens.map((t) => t.token),
+      });
 
-      // Simulate pruning invalid tokens (in real implementation, this would come from push service feedback)
-      await this.prune([], tokens.map((t) => t.token));
+      const responses: SendResponse[] = res.responses;
+      // flatMap, not filter+map: the index must stay the original response index.
+      const dead = responses.flatMap((r, i) =>
+        !r.success && r.error?.code && DEAD_TOKEN_CODES.has(r.error.code) ? [tokens[i].token] : [],
+      );
+      await this.prune(dead);
     } catch (err) {
       this.log.warn(`push to ${userId} failed: ${String(err)}`);
     }
   }
 
-  /** Drops tokens that are no longer valid so the table does not grow forever. */
-  private async prune(
-    responses: { success: boolean; error?: { code?: string } }[],
-    tokens: string[],
-  ): Promise<void> {
-    // Simulate token validation - in real implementation, analyze push service responses
-    // For now, we'll just validate that tokens are not empty strings
-    const dead = tokens.filter(token => !token || token.trim() === '');
+  /** Drops tokens FCM reported as no longer valid so the table does not grow forever. */
+  private async prune(dead: string[]): Promise<void> {
     if (dead.length) await this.db.query('DELETE FROM device_tokens WHERE token = ANY($1)', [dead]);
   }
 }

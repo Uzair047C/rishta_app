@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth_providers.dart';
 import '../../core/models.dart';
+import '../../core/push.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../core/providers.dart';
@@ -149,9 +150,8 @@ class NotificationPrefsScreen extends ConsumerWidget {
   }
 }
 
-/// Mock push registration for development when Firebase is removed.
-/// In production without Firebase, you would implement actual push registration
-/// with your chosen push notification service (AWS SNS, APNs, etc.).
+/// Registers this device for push: FCM permission + token, POSTed to
+/// /notifications/device. Failure only sets status text, never crashes.
 class _PushRegistrationTile extends ConsumerStatefulWidget {
   const _PushRegistrationTile();
 
@@ -170,14 +170,17 @@ class _PushRegistrationTileState extends ConsumerState<_PushRegistrationTile> {
 
   Future<void> _register() async {
     try {
-      // Simulate push registration delay
-      await Future.delayed(const Duration(milliseconds: 800));
-
-      // For development, we'll simulate successful registration
-      // In production without Firebase, implement actual push registration logic here
-      if (mounted) setState(() => _status = 'This device is registered for push (mock).');
+      final token = await registerPush();
+      if (token == null) throw Exception('no FCM token');
+      await ref.read(apiProvider).post(
+            '/notifications/device',
+            body: {'token': token, 'platform': pushPlatform()},
+          );
+      if (mounted) setState(() => _status = 'This device is registered for push.');
     } catch (e) {
-      if (mounted) setState(() => _status = 'Push registration unavailable.');
+      if (mounted) {
+        setState(() => _status = 'Push registration unavailable — enable notifications to receive alerts.');
+      }
     }
   }
 
