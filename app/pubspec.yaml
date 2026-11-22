@@ -38,7 +38,6 @@ dependencies:
   cached_network_image: ^3.4.1
   google_fonts: ^6.2.1
   flutter_animate: ^4.5.2
-  js: ^0.6.7
   # media_kit_libs_video: ^1.0.7  # Temporarily disabled to fix Windows build
 
 dev_dependencies:

@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Request, Response, NextFunction } from 'express';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { validateConfig } from './config/validation';
@@ -15,7 +15,7 @@ function structuredLoggingMiddleware() {
     const clientRequestId = req.headers['x-request-id'] as string | undefined;
     const requestId = clientRequestId && /^[A-Za-z0-9-]{8,64}$/.test(clientRequestId)
       ? clientRequestId
-      : uuidv4();
+      : randomUUID();
     const start = Date.now();
     const logger = new Logger('Request');
 

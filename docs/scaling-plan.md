@@ -203,7 +203,7 @@ Start with Redis cache (fast win). Add offline ranking when cache hit rate plate
 - [ ] `payment_gateway` column on `subscriptions`
 - [ ] `photo_visibility` enum on `profiles`
 - [ ] `guardians` table + foreign key
-- [ ] `sla_deadline` on `reports` and `moderation_flags`
-- [ ] Redis connection config in `.env.example`
-- [ ] Sentry DSN in `.env.example`
+- [x] `sla_deadline` on `reports` and `moderation_flags` (migration 0015)
+- [x] Redis connection config in `.env.example`
+- [x] Sentry DSN in `.env.example` (SENTRY_DSN added; @sentry/node integration is a P1 item)
 - [ ] Prometheus scrape config

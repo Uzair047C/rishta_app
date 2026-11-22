@@ -89,7 +89,7 @@ export class AdminController {
     private readonly db: Db,
   ) {}
 
-  /** Submissions flagged by the automated screeners, oldest first. */
+  /** Submissions flagged by the automated screeners, breached SLA first. */
   @Get('flags')
   async flags(@Query() query: QueueQuery) {
     const flags = await this.db.all(
@@ -97,14 +97,14 @@ export class AdminController {
          FROM moderation_flags f
          LEFT JOIN users u ON u.id = f.user_id
         WHERE f.status = $1
-        ORDER BY f.created_at ASC
+        ORDER BY (f.sla_deadline < now()) DESC, f.created_at ASC
         LIMIT $2`,
       [query.status, Math.min(query.limit, 200)],
     );
     return { flags };
   }
 
-  /** Reports filed by users. */
+  /** Reports filed by users, breached SLA first. */
   @Get('reports')
   async reports(@Query() query: QueueQuery) {
     const reports = await this.db.all(
@@ -113,7 +113,7 @@ export class AdminController {
          LEFT JOIN users reporter ON reporter.id = r.reporter_id
          LEFT JOIN users reported ON reported.id = r.reported_id
         WHERE r.status = $1
-        ORDER BY r.created_at ASC
+        ORDER BY (r.sla_deadline < now()) DESC, r.created_at ASC
         LIMIT $2`,
       [query.status, Math.min(query.limit, 200)],
     );
