@@ -6,6 +6,7 @@ import { SubscriptionService } from '../subscription/subscription.service';
 import { UsersService } from '../users/users.service';
 import { PushService } from '../notifications/push.service';
 import { OutboxWorker } from '../pg-boss/outbox.worker';
+import { StreamService } from '../chat/stream.service';
 
 describe('FeedService', () => {
   let service: FeedService;
@@ -14,6 +15,7 @@ describe('FeedService', () => {
   let usersService: any;
   let pushService: any;
   let outboxWorker: any;
+  let streamService: any;
 
   const userId = '11111111-1111-1111-1111-111111111111';
   const targetId = '22222222-2222-2222-2222-222222222222';
@@ -66,6 +68,10 @@ describe('FeedService', () => {
       processBatch: jest.fn().mockResolvedValue(undefined),
     };
 
+    streamService = {
+      endMatchChannel: jest.fn().mockResolvedValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         FeedService,
@@ -74,6 +80,7 @@ describe('FeedService', () => {
         { provide: UsersService, useValue: usersService },
         { provide: PushService, useValue: pushService },
         { provide: OutboxWorker, useValue: outboxWorker },
+        { provide: StreamService, useValue: streamService },
       ],
     }).compile();
 
@@ -424,6 +431,20 @@ describe('FeedService', () => {
       setupBlockTxMock(true);
       const result = await service.block(userId, targetId);
       expect(result).toEqual({ blocked: true });
+    });
+
+    it('should end the Stream channel when the pair had a match', async () => {
+      setupBlockTxMock(true);
+      db.oneOrNone.mockResolvedValue({ id: 'match-1' });
+      await service.block(userId, targetId);
+      expect(streamService.endMatchChannel).toHaveBeenCalledWith('match-1', [userId, targetId]);
+    });
+
+    it('should not touch Stream when the pair had no match', async () => {
+      setupBlockTxMock(true);
+      db.oneOrNone.mockResolvedValue(null);
+      await service.block(userId, targetId);
+      expect(streamService.endMatchChannel).not.toHaveBeenCalled();
     });
 
     it('should throw NotFoundException when target does not exist', async () => {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 
+import '../../core/api.dart';
 import '../../core/models.dart';
 import '../../core/providers.dart';
 import '../../core/widgets.dart';
@@ -45,25 +46,37 @@ class ChatScreen extends ConsumerWidget {
         final channel = stream.channel('messaging', id: 'match-${match.matchId}');
         return StreamChat(
           client: stream,
-          child: ChannelPage(channel: channel),
+          child: ChannelPage(channel: channel, match: match),
         );
       },
     );
   }
 }
 
-class ChannelPage extends StatelessWidget {
-  const ChannelPage({super.key, required this.channel});
+class ChannelPage extends ConsumerWidget {
+  const ChannelPage({super.key, required this.channel, required this.match});
 
   final Channel channel;
+  final MatchSummary match;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Spec 1.2 — report and unmatch are reachable from the chat thread, not
+    // just the matches list. Block uses the feed endpoint, which also ends the
+    // match server-side.
     return StreamChannel(
       channel: channel,
-      child: const Scaffold(
-        appBar: StreamChannelHeader(),
-        body: Column(
+      child: Scaffold(
+        appBar: StreamChannelHeader(
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.more_vert),
+              tooltip: 'Safety menu',
+              onPressed: () => _safetyMenu(context, ref),
+            ),
+          ],
+        ),
+        body: const Column(
           children: [
             Expanded(child: StreamMessageListView()),
             StreamMessageInput(),
@@ -71,6 +84,66 @@ class ChannelPage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _safetyMenu(BuildContext context, WidgetRef ref) async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SectionHeader('Safety'),
+            for (final r in kReportReasons)
+              ListTile(
+                title: Text('Report: $r'),
+                onTap: () => Navigator.of(sheetContext).pop('report:$r'),
+              ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.person_remove),
+              title: const Text('Unmatch'),
+              subtitle: const Text('Ends the match and this chat'),
+              onTap: () => Navigator.of(sheetContext).pop('unmatch'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.block),
+              title: const Text('Block'),
+              subtitle: const Text('Ends the match and hides them everywhere'),
+              onTap: () => Navigator.of(sheetContext).pop('block'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      if (choice == 'unmatch') {
+        await ref.read(matchesProvider.notifier).unmatch(match.matchId);
+        messenger.showSnackBar(const SnackBar(content: Text('Unmatched.')));
+        if (context.mounted) Navigator.of(context).pop();
+      } else if (choice == 'block') {
+        await ref.read(apiProvider).post('/feed/block', body: {
+          'userId': match.other.userId,
+          'reason': 'Blocked',
+        });
+        ref.invalidate(matchesProvider);
+        messenger.showSnackBar(const SnackBar(content: Text('Blocked.')));
+        if (context.mounted) Navigator.of(context).pop();
+      } else if (choice.startsWith('report:')) {
+        await ref.read(apiProvider).post('/reports', body: {
+          'reportedId': match.other.userId,
+          'matchId': match.matchId,
+          'reason': choice.substring(7),
+        });
+        messenger.showSnackBar(const SnackBar(content: Text('Thanks — we will review this.')));
+      }
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(messageFor(e))));
+    }
   }
 }
 

@@ -6,6 +6,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Db, ExtendedQueryable } from '../db/db';
 import { UserRow } from '../db/types';
+import { StreamService } from '../chat/stream.service';
 
 // Mock firebase-admin modules. verifyIdToken is a single shared mock so tests
 // can override per-call (getAuth() must return the same jest.fn every time).
@@ -99,6 +100,7 @@ describe('AuthService', () => {
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: Db, useValue: mockDb },
+        { provide: StreamService, useValue: { issueToken: jest.fn() } },
       ],
     }).compile();
 

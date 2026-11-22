@@ -2,12 +2,14 @@ import { Controller, Delete, Get, NotFoundException, Param, ParseUUIDPipe } from
 import { CurrentUser } from '../auth/current-user.decorator';
 import { UsersService } from '../users/users.service';
 import { Db } from '../db/db';
+import { StreamService } from '../chat/stream.service';
 
 @Controller('matches')
 export class MatchesController {
   constructor(
     private readonly db: Db,
     private readonly users: UsersService,
+    private readonly stream: StreamService,
   ) {}
 
   @Get()
@@ -65,6 +67,9 @@ export class MatchesController {
         [match.user_a_id, match.user_b_id],
       );
     });
+
+    // Spec 2.6.5 — unmatch ends the chat too (post-commit, never throws).
+    await this.stream.endMatchChannel(id, [match.user_a_id, match.user_b_id]);
 
     return { unmatched: true, matchId: id };
   }

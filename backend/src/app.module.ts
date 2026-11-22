@@ -26,6 +26,7 @@ import { PostgresExceptionFilter } from './common/postgres-exception.filter';
 import { throttlerKeyGenerator } from './auth/throttler-options';
 import { PhotosModule } from './photos/photos.module';
 import { PgBossModule } from './pg-boss/pg-boss.module';
+import { ChatModule } from './chat/chat.module';
 import { AccountController } from './account/account.controller';
 import { validateConfig } from './config/validation';
 import { REDIS_THROTTLER_STORAGE } from './auth/redis-throttler-storage';
@@ -56,6 +57,7 @@ import { REDIS_THROTTLER_STORAGE } from './auth/redis-throttler-storage';
     AuthModule,
     PgBossModule,
     PhotosModule,
+    ChatModule,
   ],
   controllers: [
     ProfileController,

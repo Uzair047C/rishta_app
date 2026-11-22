@@ -87,7 +87,12 @@ async function bootstrap(): Promise<void> {
 
   const app = await NestFactory.create(AppModule);
   const expressApp = app.getHttpAdapter().getInstance();
-  expressApp.use(require('express').json({ limit: '100kb' }));
+  // Raw bytes kept on the request for webhook signature checks (Stream signs
+  // the exact bytes; re-serializing JSON would break the HMAC).
+  expressApp.use(require('express').json({
+    limit: '100kb',
+    verify: (req: any, _res: any, buf: Buffer) => { (req as any).rawBody = buf; },
+  }));
 
   // Security headers
   app.use(helmet({

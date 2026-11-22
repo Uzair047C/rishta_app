@@ -5,6 +5,7 @@ import { PushService } from '../notifications/push.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { UsersService } from '../users/users.service';
 import { OutboxWorker } from '../pg-boss/outbox.worker';
+import { StreamService } from '../chat/stream.service';
 
 export interface FeedFilters {
   minAge?: number;
@@ -96,6 +97,7 @@ export class FeedService {
     private readonly subscriptions: SubscriptionService,
     private readonly users: UsersService,
     private readonly outboxWorker: OutboxWorker,
+    private readonly stream: StreamService,
   ) {}
 
   async feed(userId: string, f: FeedFilters): Promise<FeedResult> {
@@ -525,7 +527,7 @@ export class FeedService {
   async block(userId: string, targetId: string, reason?: string): Promise<{ blocked: true }> {
     if (userId === targetId) throw new BadRequestException('cannot_block_self');
 
-    return this.db.tx(async (conn) => {
+    const result: { blocked: true } = await this.db.tx(async (conn) => {
       // Advisory lock on the pair
       await conn.query(
         `SELECT pg_advisory_xact_lock(hashtextextended(least($1,$2)::text || greatest($1,$2)::text, 0))`,
@@ -573,5 +575,14 @@ export class FeedService {
       }
       return { blocked: true };
     });
+
+    // Spec 2.6.5 — the match row is gone, so the chat must go with it: remove
+    // both members from the Stream channel (post-commit, never throws).
+    const match = await this.db.oneOrNone<{ id: string }>(
+      `SELECT id FROM matches WHERE (user_a_id = $1 AND user_b_id = $2) OR (user_a_id = $2 AND user_b_id = $1)`,
+      [userId, targetId],
+    );
+    if (match) await this.stream.endMatchChannel(match.id, [userId, targetId]);
+    return result;
   }
 }

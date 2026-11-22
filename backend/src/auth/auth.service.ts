@@ -7,6 +7,7 @@ import { UserRow } from '../db/types';
 import { getAuth } from 'firebase-admin/auth';
 import { initializeApp, cert, getApps, App } from 'firebase-admin/app';
 import { createHash, randomBytes } from 'crypto';
+import { StreamService } from '../chat/stream.service';
 
 @Injectable()
 export class AuthService {
@@ -17,6 +18,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly db: Db,
+    private readonly stream: StreamService,
   ) {
     // Initialize Firebase Admin SDK
     this.firebaseApp = this.initializeFirebase();
@@ -271,37 +273,8 @@ export class AuthService {
     return { success: true };
   }
 
-  private streamClient: any = null;
-
-  private getStreamClient() {
-    if (!this.streamClient) {
-      const streamApiKey = this.configService.get<string>('STREAM_API_KEY');
-      const streamApiSecret = this.configService.get<string>('STREAM_API_SECRET');
-
-      if (!streamApiKey || !streamApiSecret) {
-        throw new Error('Stream Chat not configured');
-      }
-
-      const { StreamChat } = require('stream-chat');
-      this.streamClient = StreamChat.getInstance(streamApiKey, streamApiSecret);
-    }
-    return this.streamClient;
-  }
-
   async getStreamToken(userId: string): Promise<{ token: string; expiresAt: number }> {
-    const client = this.getStreamClient();
-
-    // Upsert Stream user server-side
-    await client.upsertUser({
-      id: userId,
-      role: 'user',
-    });
-
-    // Create token with 1 hour expiry
-    const token = client.createToken(userId);
-    const expiresAt = Math.floor(Date.now() / 1000) + 3600; // 1 hour
-
-    return { token, expiresAt };
+    return this.stream.issueToken(userId);
   }
 
   async validateUser(userId: string): Promise<UserRow | null> {

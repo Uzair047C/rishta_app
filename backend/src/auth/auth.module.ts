@@ -6,10 +6,12 @@ import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { UsersModule } from '../users/users.module';
+import { ChatModule } from '../chat/chat.module';
 
 @Module({
   imports: [
     UsersModule,
+    ChatModule,
     JwtModule.registerAsync({
       useFactory: (config: ConfigService) => {
         const secret = config.get<string>('JWT_SECRET');
