@@ -24,6 +24,15 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
+    // camera-core's javac type-annotations reference CallbackToFutureAdapter, which
+    // camera_android_camerax doesn't declare; without this javac can't attach them.
+    if (project.name == "camera_android_camerax") {
+        project.afterEvaluate {
+            project.dependencies {
+                add("compileOnly", "androidx.concurrent:concurrent-futures:1.2.0")
+            }
+        }
+    }
 }
 
 tasks.register<Delete>("clean") {

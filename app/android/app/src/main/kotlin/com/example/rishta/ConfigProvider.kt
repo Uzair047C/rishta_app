@@ -22,7 +22,7 @@ class ConfigProvider : FlutterPlugin, MethodCallHandler {
     override fun onMethodCall(call: MethodCall, result: Result) {
         when (call.method) {
             "getApiBase" -> {
-                result.success(BuildConfig.API_BASE)
+                result.success(null)
             }
             else -> result.notImplemented()
         }

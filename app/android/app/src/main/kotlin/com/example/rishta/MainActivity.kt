@@ -13,7 +13,7 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "getApiBase" -> {
-                    result.success(BuildConfig.API_BASE)
+                    result.success(null)
                 }
                 else -> result.notImplemented()
             }
