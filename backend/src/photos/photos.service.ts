@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Db } from '../db/db';
 import { PgBossService } from '../pg-boss/pg-boss.service';
@@ -41,7 +41,9 @@ export class PhotosService {
     private readonly config: ConfigService,
     private readonly pgBoss: PgBossService,
     private readonly moderation: ModerationService,
-    private readonly verification: VerificationService,
+    // PhotosService -> VerificationService -> PhotosService cycle; VerificationService
+    // only calls getStorageUrl(), safe to lazy-resolve via forwardRef.
+    @Inject(forwardRef(() => VerificationService)) private readonly verification: VerificationService,
   ) {}
 
   /**

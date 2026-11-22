@@ -22,7 +22,8 @@ export const appConfigSchema = Joi.object({
   JWT_ISSUER: Joi.string().default('rishta-api'),
   JWT_AUDIENCE: Joi.string().default('rishta-app'),
 
-  // Firebase
+  // Firebase — either the individual vars or a base64 service-account JSON
+  // (FIREBASE_SERVICE_ACCOUNT_BASE64), from which they are derived below.
   FIREBASE_PROJECT_ID: Joi.string().required().messages({
     'any.required': 'FIREBASE_PROJECT_ID is required',
   }),
@@ -72,7 +73,32 @@ export const appConfigSchema = Joi.object({
   THROTTLE_DEFAULT_TTL: Joi.number().integer().min(1000).default(60000),
 }).unknown(true);
 
+/**
+ * Derive FIREBASE_PROJECT_ID/CLIENT_EMAIL/PRIVATE_KEY from a base64-encoded
+ * service-account JSON when the individual vars are absent. Mutates `config`
+ * in place so Joi validation sees a complete set.
+ */
+function deriveFirebaseVarsFromServiceAccount(config: Record<string, unknown>): void {
+  const has = (k: string) => typeof config[k] === 'string' && (config[k] as string).length > 0;
+  if (has('FIREBASE_PROJECT_ID') && has('FIREBASE_CLIENT_EMAIL') && has('FIREBASE_PRIVATE_KEY')) return;
+
+  const b64 = config.FIREBASE_SERVICE_ACCOUNT_BASE64;
+  if (typeof b64 !== 'string' || b64.length === 0) return;
+
+  let sa: { project_id?: string; client_email?: string; private_key?: string };
+  try {
+    sa = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+  } catch {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT_BASE64 is not valid base64 JSON');
+  }
+
+  config.FIREBASE_PROJECT_ID ??= sa.project_id;
+  config.FIREBASE_CLIENT_EMAIL ??= sa.client_email;
+  config.FIREBASE_PRIVATE_KEY ??= sa.private_key?.replace(/\n/g, '\\n');
+}
+
 export const validateConfig = (config: Record<string, unknown>) => {
+  deriveFirebaseVarsFromServiceAccount(config);
   const { error, value } = appConfigSchema.validate(config, {
     abortEarly: false,
     allowUnknown: true,

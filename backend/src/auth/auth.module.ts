@@ -30,6 +30,8 @@ import { ChatModule } from '../chat/chat.module';
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtAuthGuard],
-  exports: [AuthService, JwtAuthGuard],
+  // JwtModule exported so the APP_GUARD JwtAuthGuard (instantiated in AppModule
+  // context) can resolve JwtService.
+  exports: [AuthService, JwtAuthGuard, JwtModule],
 })
 export class AuthModule {}

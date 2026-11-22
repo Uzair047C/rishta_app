@@ -117,7 +117,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(status: AuthStatus.authenticating, error: null);
 
     try {
-      // Get Google ID token
+      // Get Google account
       final idToken = await GoogleSignInService.signIn();
       if (idToken == null) {
         // User cancelled
@@ -125,10 +125,23 @@ class AuthNotifier extends StateNotifier<AuthState> {
         return;
       }
 
-      // Exchange ID token for app tokens
+      // Backend verifies a FIREBASE ID token (firebase-admin verifyIdToken), not a
+      // raw Google OAuth token — mint one via Firebase Auth, like email/phone do.
+      final googleAuth = GoogleAuthProvider.credential(idToken: idToken);
+      final fbUser =
+          (await FirebaseAuth.instance.signInWithCredential(googleAuth)).user;
+      if (fbUser == null) {
+        throw Exception('Firebase sign-in failed');
+      }
+      final firebaseIdToken = await fbUser.getIdToken();
+      if (firebaseIdToken == null) {
+        throw Exception('Failed to obtain Firebase ID token');
+      }
+
+      // Exchange Firebase ID token for app tokens
       final response = await _api.post<Map<String, dynamic>>(
         '/auth/google',
-        body: {'idToken': idToken},
+        body: {'idToken': firebaseIdToken},
         requiresAuth: false,
       );
 

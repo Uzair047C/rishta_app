@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, OnApplicationBootstrap, Logger } from '@nestjs/common';
 import { Db } from '../db/db';
 import { PgBossService } from './pg-boss.service';
 
@@ -10,7 +10,7 @@ import { PgBossService } from './pg-boss.service';
  * wiring until an ops stack exists.
  */
 @Injectable()
-export class SlaWorker implements OnModuleInit {
+export class SlaWorker implements OnApplicationBootstrap {
   private readonly log = new Logger(SlaWorker.name);
 
   constructor(
@@ -18,7 +18,7 @@ export class SlaWorker implements OnModuleInit {
     private readonly pgBoss: PgBossService,
   ) {}
 
-  async onModuleInit(): Promise<void> {
+  async onApplicationBootstrap(): Promise<void> {
     await this.pgBoss.schedule('sla.check', '0 * * * *', {}, { timezone: 'UTC' });
     await this.pgBoss.subscribe('sla.check', async () => { await this.check(); }, { teamSize: 1, teamConcurrency: 1 });
     this.log.log('SLA breach check scheduled (hourly)');

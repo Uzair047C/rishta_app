@@ -1,3 +1,4 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -12,6 +13,14 @@ final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.light);
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   debugPrint('Main: Starting app');
+
+  // Firebase is required for email/phone auth, the Google->Firebase token
+  // exchange, and FCM push. google-services.json supplies the options.
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    debugPrint('Firebase.initializeApp failed: $e');
+  }
 
   // Initialize Google Sign-In (non-blocking for tests)
   try {

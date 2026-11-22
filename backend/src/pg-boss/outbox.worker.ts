@@ -1,10 +1,10 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, OnApplicationBootstrap, Logger } from '@nestjs/common';
 import { Db } from '../db/db';
 import { PgBossService } from './pg-boss.service';
 import { PushService } from '../notifications/push.service';
 
 @Injectable()
-export class OutboxWorker implements OnModuleInit {
+export class OutboxWorker implements OnApplicationBootstrap {
   private readonly log = new Logger(OutboxWorker.name);
   private readonly MAX_ATTEMPTS = 5;
   private readonly BASE_DELAY_MS = 1000; // 1s, 2s, 4s, 8s, 16s
@@ -15,7 +15,7 @@ export class OutboxWorker implements OnModuleInit {
     private readonly push: PushService,
   ) {}
 
-  async onModuleInit(): Promise<void> {
+  async onApplicationBootstrap(): Promise<void> {
     // Schedule the outbox processor to run every minute (pg-boss minimum)
     await this.pgBoss.schedule(
       'outbox.process',

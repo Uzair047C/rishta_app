@@ -29,7 +29,6 @@ import { PgBossModule } from './pg-boss/pg-boss.module';
 import { ChatModule } from './chat/chat.module';
 import { AccountController } from './account/account.controller';
 import { validateConfig } from './config/validation';
-import { REDIS_THROTTLER_STORAGE } from './auth/redis-throttler-storage';
 
 @Module({
   imports: [
@@ -40,16 +39,16 @@ import { REDIS_THROTTLER_STORAGE } from './auth/redis-throttler-storage';
     // Spec 2.1 — global baseline; auth, like and report routes tighten it locally
     // with @Throttle.
     ThrottlerModule.forRootAsync({
-      useFactory: (redisStorage: any) => ({
+      useFactory: (config: ConfigService) => ({
         throttlers: [
           { name: 'default', ttl: 60_000, limit: 100 },
         ],
         // Key by user ID when authenticated, otherwise by IP
         getTracker: throttlerKeyGenerator,
-        // Use Redis storage when REDIS_URL is configured
-        ...(redisStorage ? { storage: redisStorage } : {}),
+        // ponytail: Redis throttler storage was wired to an unregistered token and
+        // never worked; in-memory until Redis throttling is actually needed.
       }),
-      inject: [REDIS_THROTTLER_STORAGE],
+      inject: [ConfigService],
     }),
     DbModule,
     UsersModule,
