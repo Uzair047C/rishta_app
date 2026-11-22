@@ -30,19 +30,6 @@ android {
         versionName = flutter.versionName
     }
 
-    flavorDimensions = "environment"
-    productFlavors {
-        create("dev") {
-            dimension = "environment"
-            applicationIdSuffix = ".dev"
-            buildConfigField("String", "API_BASE", "\"http://10.0.2.2:3000\"")
-        }
-        create("prod") {
-            dimension = "environment"
-            buildConfigField("String", "API_BASE", "\"https://api.rishta.app\"")
-        }
-    }
-
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.

@@ -1,6 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import 'google_signin_service_stub.dart'
+    if (dart.library.html) 'google_signin_service_web.dart';
+
 /// Service for handling Google Sign-In flow.
 /// Uses google_sign_in package to obtain Google ID token.
 class GoogleSignInService {
@@ -87,4 +90,4 @@ class GoogleSignInError implements Exception {
 
 /// Gets the Google client ID from JS global (web only).
 /// Returns null on non-web platforms or if not configured.
-external Future<String?> _getGoogleClientId();
+Future<String?> _getGoogleClientId() => getGoogleClientId();
