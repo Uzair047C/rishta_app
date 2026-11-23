@@ -1,10 +1,12 @@
-import { Controller, Post, Body, Get, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { Public } from './public.decorator';
 import { CurrentUser } from './current-user.decorator';
-import { JwtAuthGuard } from './jwt-auth.guard';
+import { GoogleLoginDto } from './dto/google-login.dto';
+import { LogoutDto, RefreshDto } from './dto/auth.dto';
 
+// JwtAuthGuard is a global APP_GUARD; @Public opts routes out.
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -13,8 +15,8 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('google')
   @Public()
-  async googleLogin(@Body() { idToken }: { idToken: string }) {
-    return this.authService.firebaseLogin(idToken);
+  async googleLogin(@Body() dto: GoogleLoginDto) {
+    return this.authService.googleLogin(dto.idToken);
   }
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
@@ -28,14 +30,14 @@ export class AuthController {
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
   @Post('refresh')
   @Public()
-  async refresh(@Body() { refreshToken }: { refreshToken: string }) {
-    return this.authService.refreshAccessToken(refreshToken);
+  async refresh(@Body() dto: RefreshDto) {
+    return this.authService.refreshAccessToken(dto.refreshToken);
   }
 
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  async logout(@CurrentUser() userId: string, @Body() { refreshToken }: { refreshToken?: string }) {
-    return this.authService.logout(userId, refreshToken);
+  async logout(@CurrentUser() userId: string, @Body() dto: LogoutDto) {
+    return this.authService.logout(userId, dto.refreshToken);
   }
 
   @Get('me')

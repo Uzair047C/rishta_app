@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { UnauthorizedException, ConflictException } from '@nestjs/common';
+import { UnauthorizedException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
@@ -20,6 +20,12 @@ jest.mock('firebase-admin/app', () => ({
 
 jest.mock('firebase-admin/auth', () => ({
   getAuth: jest.fn(() => ({ verifyIdToken: mockVerifyIdToken })),
+}), { virtual: true });
+
+// Mock google-auth-library: one shared verifyIdToken mock for /auth/google.
+const mockGoogleVerify = jest.fn();
+jest.mock('google-auth-library', () => ({
+  OAuth2Client: jest.fn().mockImplementation(() => ({ verifyIdToken: mockGoogleVerify })),
 }), { virtual: true });
 
 describe('AuthService', () => {
@@ -56,6 +62,15 @@ describe('AuthService', () => {
       email_verified: true,
       name: 'Test User',
     });
+    mockGoogleVerify.mockReset();
+    mockGoogleVerify.mockResolvedValue({
+      getPayload: () => ({
+        sub: 'google-sub-123',
+        email: 'test@example.com',
+        email_verified: true,
+        name: 'Test User',
+      }),
+    });
 
     const mockUsersService = {
       findOrCreateByFirebaseUid: jest.fn(),
@@ -72,6 +87,7 @@ describe('AuthService', () => {
       get: jest.fn((key: string) => {
         const values: Record<string, unknown> = {
           JWT_SECRET: 'test-secret',
+          GOOGLE_CLIENT_IDS: 'web-id.apps.googleusercontent.com,android-id.apps.googleusercontent.com',
           FIREBASE_PROJECT_ID: 'test-project',
           FIREBASE_CLIENT_EMAIL: 'firebase-adminsdk@test-project.iam.gserviceaccount.com',
           FIREBASE_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nTEST\n-----END PRIVATE KEY-----\n',
@@ -220,6 +236,58 @@ describe('AuthService', () => {
     });
   });
 
+  describe('googleLogin', () => {
+    it('should verify the token against GOOGLE_CLIENT_IDS and login an existing Google user', async () => {
+      db.oneOrNone.mockResolvedValueOnce(mockUser); // existing user by (google, sub)
+      usersService.requireOnboarded.mockResolvedValue(mockUser);
+      jwtService.sign.mockReturnValue('access-token');
+      db.query.mockResolvedValue({ rows: [], rowCount: 1 });
+
+      const result = await service.googleLogin('google-id-token');
+
+      expect(mockGoogleVerify).toHaveBeenCalledWith({
+        idToken: 'google-id-token',
+        audience: ['web-id.apps.googleusercontent.com', 'android-id.apps.googleusercontent.com'],
+      });
+      expect(result.user.id).toBe(mockUser.id);
+      expect(result.profileComplete).toBe(true);
+    });
+
+    it('should create a new user keyed on the Google sub when none exists', async () => {
+      db.oneOrNone.mockResolvedValueOnce(null); // no user by (google, sub)
+      usersService.findOrCreateByFirebaseUid.mockResolvedValue(mockUser);
+      usersService.requireOnboarded.mockRejectedValue(new Error('profile_incomplete'));
+      jwtService.sign.mockReturnValue('access-token');
+      db.query.mockResolvedValue({ rows: [], rowCount: 1 });
+
+      const result = await service.googleLogin('google-id-token');
+
+      expect(usersService.findOrCreateByFirebaseUid).toHaveBeenCalledWith('google-sub-123', 'test@example.com', 'Test User', true);
+      expect(result.profileComplete).toBe(false);
+    });
+
+    it('should reject an unverifiable token', async () => {
+      mockGoogleVerify.mockRejectedValue(new Error('bad token'));
+
+      await expect(service.googleLogin('bad-token')).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should reject when email is not verified', async () => {
+      mockGoogleVerify.mockResolvedValue({
+        getPayload: () => ({ sub: 'google-sub-123', email: 'x@example.com', email_verified: false }),
+      });
+
+      await expect(service.googleLogin('google-id-token')).rejects.toThrow('not verified');
+    });
+
+    it('should reject suspended and banned users', async () => {
+      db.oneOrNone.mockResolvedValueOnce({ ...mockUser, status: 'banned' });
+
+      await expect(service.googleLogin('google-id-token')).rejects.toThrow(ForbiddenException);
+      expect(jwtService.sign).not.toHaveBeenCalled();
+    });
+  });
+
   describe('refreshAccessToken', () => {
     it('should throw UnauthorizedException for invalid refresh token', async () => {
       const mockTxDb: ExtendedQueryable = {
@@ -279,15 +347,17 @@ describe('AuthService', () => {
     it('should return new accessToken and refreshToken for valid refresh token', async () => {
       const mockTxDb: ExtendedQueryable = {
         query: jest.fn().mockResolvedValue({ rows: [], rowCount: 1 }),
-        oneOrNone: jest.fn().mockResolvedValue({
-          id: 'token-id',
-          user_id: mockUser.id,
-          token_hash: 'hash',
-          expires_at: new Date(Date.now() + 86400000),
-          revoked_at: null,
-          family_id: 'family-123',
-          replaced_by: null,
-        }),
+        oneOrNone: jest.fn()
+          .mockResolvedValueOnce({
+            id: 'token-id',
+            user_id: mockUser.id,
+            token_hash: 'hash',
+            expires_at: new Date(Date.now() + 86400000),
+            revoked_at: null,
+            family_id: 'family-123',
+            replaced_by: null,
+          })
+          .mockResolvedValueOnce({ status: 'active' }), // user status check
         one: jest.fn().mockResolvedValue({ id: 'new-token-id' }),
         all: jest.fn(),
         count: jest.fn(),
@@ -300,6 +370,29 @@ describe('AuthService', () => {
       expect(result).toHaveProperty('accessToken');
       expect(result).toHaveProperty('refreshToken');
       expect(result.accessToken).toBe('new-access-token');
+    });
+
+    it('should reject refresh for a banned user', async () => {
+      const mockTxDb: ExtendedQueryable = {
+        query: jest.fn(),
+        oneOrNone: jest.fn()
+          .mockResolvedValueOnce({
+            id: 'token-id',
+            user_id: mockUser.id,
+            token_hash: 'hash',
+            expires_at: new Date(Date.now() + 86400000),
+            revoked_at: null,
+            family_id: 'family-123',
+            replaced_by: null,
+          })
+          .mockResolvedValueOnce({ status: 'banned' }),
+        one: jest.fn(),
+        all: jest.fn(),
+        count: jest.fn(),
+      };
+      db.tx.mockImplementation(async (fn) => fn(mockTxDb));
+
+      await expect(service.refreshAccessToken('valid-refresh-token')).rejects.toThrow(ForbiddenException);
     });
   });
 
@@ -317,16 +410,32 @@ describe('AuthService', () => {
     });
 
     it('should revoke token family when refreshToken provided', async () => {
-      db.oneOrNone.mockResolvedValue({ id: 'token-id', family_id: 'family-123' });
+      db.oneOrNone.mockResolvedValue({ family_id: 'family-123' });
       db.query.mockResolvedValue({ rows: [], rowCount: 1 });
 
       const result = await service.logout(mockUser.id, 'some-refresh-token');
 
       expect(result).toEqual({ success: true });
-      expect(db.oneOrNone).toHaveBeenCalled();
+      expect(db.oneOrNone).toHaveBeenCalledWith(
+        'SELECT family_id FROM refresh_tokens WHERE token_hash = $1 AND user_id = $2',
+        [expect.any(String), mockUser.id],
+      );
       expect(db.query).toHaveBeenCalledWith(
+        'UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND user_id = $2 AND revoked_at IS NULL',
+        ['family-123', mockUser.id]
+      );
+    });
+
+    it('should not revoke anything for another user token (scoped logout)', async () => {
+      db.oneOrNone.mockResolvedValue(null); // token belongs to someone else
+      db.query.mockResolvedValue({ rows: [], rowCount: 0 });
+
+      const result = await service.logout(mockUser.id, 'foreign-token');
+
+      expect(result).toEqual({ success: true });
+      expect(db.query).not.toHaveBeenCalledWith(
         'UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL',
-        ['family-123']
+        expect.anything(),
       );
     });
   });

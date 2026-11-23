@@ -154,7 +154,7 @@ export class AdminController {
     return { id, status: dto.status };
   }
 
-  /** Admin: suspend or ban a user. */
+  /** Admin: suspend or ban a user. Non-active status revokes their refresh tokens. */
   @Post('users/:id/status')
   async setUserStatus(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UserActionDto, @CurrentUser() adminId: string) {
     const result = await this.db.tx(async (conn) => {
@@ -164,6 +164,13 @@ export class AdminController {
       );
       if (!updated.rowCount) {
         throw new ForbiddenException('user_not_found');
+      }
+      // Cut off sessions immediately: refresh tokens die with the status change.
+      if (dto.status !== 'active') {
+        await conn.query(
+          'UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL',
+          [id]
+        );
       }
       // Audit log
       await conn.query(

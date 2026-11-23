@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -7,11 +7,14 @@ import { UserRow } from '../db/types';
 import { getAuth } from 'firebase-admin/auth';
 import { initializeApp, cert, getApps, App } from 'firebase-admin/app';
 import { createHash, randomBytes } from 'crypto';
+import { OAuth2Client } from 'google-auth-library';
 import { StreamService } from '../chat/stream.service';
 
 @Injectable()
 export class AuthService {
   private readonly firebaseApp: App;
+  private readonly oauthClient: OAuth2Client;
+  private readonly googleClientIds: string[];
 
   constructor(
     private readonly usersService: UsersService,
@@ -22,6 +25,16 @@ export class AuthService {
   ) {
     // Initialize Firebase Admin SDK
     this.firebaseApp = this.initializeFirebase();
+
+    // Raw Google OAuth verification: audience = every client ID in GOOGLE_CLIENT_IDS
+    this.googleClientIds = (this.configService.get<string>('GOOGLE_CLIENT_IDS') ?? '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    if (this.googleClientIds.length === 0) {
+      throw new Error('GOOGLE_CLIENT_IDS is not configured (comma-separated Web/Android/iOS client IDs)');
+    }
+    this.oauthClient = new OAuth2Client();
   }
 
   private initializeFirebase(): App {
@@ -68,19 +81,11 @@ export class AuthService {
     }
   }
 
-  async firebaseLogin(idToken: string): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
-    const firebasePayload = await this.validateFirebaseIdToken(idToken);
-
-    // Phone-auth tokens carry a phone_number claim and no email — route them
-    // to the phone-aware find-or-create.
-    const user = firebasePayload.phone
-      ? await this.findOrCreateByPhone(firebasePayload.firebaseUid, firebasePayload.phone)
-      : await this.usersService.findOrCreateByFirebaseUid(
-          firebasePayload.firebaseUid,
-          firebasePayload.email,
-          firebasePayload.name,
-          firebasePayload.emailVerified,
-        );
+  /** Shared tail of both login paths: block non-active users, check onboarding, issue tokens. */
+  private async finishLogin(user: UserRow): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
+    if (user.status && user.status !== 'active') {
+      throw new ForbiddenException(`account_${user.status}`);
+    }
 
     // Check if user has completed onboarding
     let profileComplete = false;
@@ -98,12 +103,63 @@ export class AuthService {
     // Generate tokens
     const { accessToken, refreshToken } = await this.issueTokenPair(user.id);
 
-    return {
-      accessToken,
-      refreshToken,
-      user,
-      profileComplete,
-    };
+    return { accessToken, refreshToken, user, profileComplete };
+  }
+
+  async firebaseLogin(idToken: string): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
+    const firebasePayload = await this.validateFirebaseIdToken(idToken);
+
+    // Phone-auth tokens carry a phone_number claim and no email — route them
+    // to the phone-aware find-or-create.
+    const user = firebasePayload.phone
+      ? await this.findOrCreateByPhone(firebasePayload.firebaseUid, firebasePayload.phone)
+      : await this.usersService.findOrCreateByFirebaseUid(
+          firebasePayload.firebaseUid,
+          firebasePayload.email,
+          firebasePayload.name,
+          firebasePayload.emailVerified,
+        );
+
+    return this.finishLogin(user);
+  }
+
+  /**
+   * Raw Google Sign-In: verifies a Google-issued ID token with google-auth-library.
+   * Find-or-create keyed on the Google `sub` (stored as provider_subject).
+   */
+  async googleLogin(idToken: string): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
+    let ticket;
+    try {
+      ticket = await this.oauthClient.verifyIdToken({ idToken, audience: this.googleClientIds });
+    } catch {
+      throw new UnauthorizedException('Invalid Google ID token');
+    }
+
+    const payload = ticket.getPayload();
+    if (!payload?.sub) {
+      throw new UnauthorizedException('Invalid Google ID token');
+    }
+    if (!payload.email_verified) {
+      throw new UnauthorizedException('Google account email is not verified');
+    }
+
+    const user = await this.findOrCreateByGoogleSub(payload.sub, payload.email ?? '', payload.name);
+
+    return this.finishLogin(user);
+  }
+
+  /** Find-or-create keyed on the Google `sub`; reuses the verified-email link logic. */
+  private async findOrCreateByGoogleSub(googleSub: string, email: string, name?: string): Promise<UserRow> {
+    // Existing Google-linked user
+    const existing = await this.db.oneOrNone<UserRow>(
+      "SELECT * FROM users WHERE auth_provider = 'google' AND provider_subject = $1",
+      [googleSub],
+    );
+    if (existing) return existing;
+
+    // Otherwise delegate: links by verified email or creates a new row with
+    // the Google sub stored as firebase_uid (the app's primary provider key).
+    return this.usersService.findOrCreateByFirebaseUid(googleSub, email, name, true);
   }
 
   // Phone OTP: the client (firebase_auth package) handles SMS delivery and
@@ -186,6 +242,15 @@ export class AuthService {
         throw new UnauthorizedException('Refresh token expired');
       }
 
+      // Suspended/banned users cannot mint new tokens
+      const row = await conn.oneOrNone<{ status: string | null }>(
+        'SELECT status FROM users WHERE id = $1',
+        [existingToken.user_id],
+      );
+      if (row?.status && row.status !== 'active') {
+        throw new ForbiddenException(`account_${row.status}`);
+      }
+
       // Generate new token pair
       const newRefreshToken = this.generateRefreshToken();
       const newTokenHash = this.hashToken(newRefreshToken);
@@ -253,17 +318,17 @@ export class AuthService {
 
   async logout(userId: string, refreshToken?: string): Promise<{ success: boolean }> {
     if (refreshToken) {
-      // Revoke specific refresh token (and its family for security)
+      // Revoke this token's family, scoped to the calling user (a stolen token
+      // must not be able to log other users out).
       const tokenHash = this.hashToken(refreshToken);
-      const token = await this.db.oneOrNone<{ id: string; family_id: string }>(
-        'SELECT id, family_id FROM refresh_tokens WHERE token_hash = $1',
-        [tokenHash]
+      const token = await this.db.oneOrNone<{ family_id: string }>(
+        'SELECT family_id FROM refresh_tokens WHERE token_hash = $1 AND user_id = $2',
+        [tokenHash, userId]
       );
       if (token) {
-        // Revoke entire family to prevent any reuse
         await this.db.query(
-          'UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL',
-          [token.family_id]
+          'UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND user_id = $2 AND revoked_at IS NULL',
+          [token.family_id, userId]
         );
       }
     } else {

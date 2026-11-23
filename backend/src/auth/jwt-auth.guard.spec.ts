@@ -121,4 +121,26 @@ describe('JwtAuthGuard', () => {
 
     await expect(guard.canActivate(ctx as any)).rejects.toThrow(UnauthorizedException);
   });
+
+  it('should reject suspended and banned users', async () => {
+    reflector.getAllAndOverride.mockReturnValue(false);
+    jwtService.verify.mockReturnValue({ userId: 'test-user-id' });
+    db.oneOrNone.mockResolvedValue({ id: 'test-user-id', status: 'banned', is_admin: false });
+    const ctx = mockContext(mockRequest({ authorization: 'Bearer valid-token' }));
+
+    await expect(guard.canActivate(ctx as any)).rejects.toThrow('account_banned');
+    expect(ctx.switchToHttp().getRequest().user).toBeUndefined();
+  });
+
+  it('should fetch the user from the DB on every request (no status cache)', async () => {
+    reflector.getAllAndOverride.mockReturnValue(false);
+    jwtService.verify.mockReturnValue({ userId: 'test-user-id' });
+    db.oneOrNone.mockResolvedValue({ id: 'test-user-id', status: 'active', is_admin: false });
+    const ctx = mockContext(mockRequest({ authorization: 'Bearer valid-token' }));
+
+    await guard.canActivate(ctx as any);
+    await guard.canActivate(ctx as any);
+
+    expect(db.oneOrNone).toHaveBeenCalledTimes(2);
+  });
 });

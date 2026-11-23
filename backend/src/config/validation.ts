@@ -22,6 +22,12 @@ export const appConfigSchema = Joi.object({
   JWT_ISSUER: Joi.string().default('rishta-api'),
   JWT_AUDIENCE: Joi.string().default('rishta-app'),
 
+  // Google OAuth: comma-separated client IDs (Web/Android/iOS) allowed as
+  // audiences on raw Google ID tokens sent to /auth/google.
+  GOOGLE_CLIENT_IDS: Joi.string().required().messages({
+    'any.required': 'GOOGLE_CLIENT_IDS is required (comma-separated Web/Android/iOS client IDs)',
+  }),
+
   // Firebase — either the individual vars or a base64 service-account JSON
   // (FIREBASE_SERVICE_ACCOUNT_BASE64), from which they are derived below.
   FIREBASE_PROJECT_ID: Joi.string().required().messages({

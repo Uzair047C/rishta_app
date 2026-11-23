@@ -7,6 +7,7 @@ import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Db } from '../db/db';
+import { RefreshDto } from './dto/auth.dto';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -35,6 +36,7 @@ describe('AuthController', () => {
   beforeEach(async () => {
     const mockAuthService = {
       firebaseLogin: jest.fn(),
+      googleLogin: jest.fn(),
       refreshAccessToken: jest.fn(),
       logout: jest.fn(),
       validateUser: jest.fn(),
@@ -67,6 +69,18 @@ describe('AuthController', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  describe('googleLogin', () => {
+    it('should delegate to authService.googleLogin with the DTO idToken', async () => {
+      const expected = { accessToken: 'a', refreshToken: 'r', user: mockUser, profileComplete: true };
+      authService.googleLogin.mockResolvedValue(expected);
+
+      const result = await controller.googleLogin({ idToken: 'google-id-token' });
+
+      expect(result).toEqual(expected);
+      expect(authService.googleLogin).toHaveBeenCalledWith('google-id-token');
+    });
   });
 
   describe('firebaseLogin', () => {
@@ -107,6 +121,14 @@ describe('AuthController', () => {
       authService.refreshAccessToken.mockRejectedValue(new UnauthorizedException('Invalid or expired refresh token'));
 
       await expect(controller.refresh({ refreshToken: 'invalid-token' })).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should reject a missing refreshToken via DTO validation (400 via pipe)', async () => {
+      const { validate } = await import('class-validator');
+      const dto = Object.assign(new RefreshDto(), {});
+      const errors = await validate(dto);
+      expect(errors.map((e) => e.property)).toContain('refreshToken');
+      expect(authService.refreshAccessToken).not.toHaveBeenCalled();
     });
   });
 
