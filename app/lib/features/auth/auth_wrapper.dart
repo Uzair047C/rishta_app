@@ -47,7 +47,9 @@ class AuthWrapper extends ConsumerWidget {
     return switch (authState.status) {
       AuthStatus.initial => const _LoadingScreen(),
       AuthStatus.unauthenticated => const LoginScreen(),
-      AuthStatus.authenticating => const _LoadingScreen(),
+      // Stay on LoginScreen while signing in so the provider-driven error
+      // banner and button spinner stay visible (a loader here would wipe them).
+      AuthStatus.authenticating => const LoginScreen(),
       AuthStatus.onboarding => const OnboardingFlow(),
       AuthStatus.authenticated => const HomeShell(),
     };

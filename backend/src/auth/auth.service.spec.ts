@@ -286,6 +286,40 @@ describe('AuthService', () => {
       await expect(service.googleLogin('google-id-token')).rejects.toThrow(ForbiddenException);
       expect(jwtService.sign).not.toHaveBeenCalled();
     });
+
+    it('should store consent records when provided', async () => {
+      db.oneOrNone.mockResolvedValueOnce(mockUser);
+      usersService.requireOnboarded.mockResolvedValue(mockUser);
+      jwtService.sign.mockReturnValue('access-token');
+      db.query.mockResolvedValue({ rows: [], rowCount: 1 });
+
+      await service.googleLogin('google-id-token', [
+        { document: 'terms', acceptedAt: new Date().toISOString() },
+        { document: 'privacy', acceptedAt: new Date().toISOString() },
+      ]);
+
+      const consentCalls = db.query.mock.calls.filter((c: unknown[]) => String(c[0]).includes('user_consents'));
+      expect(consentCalls).toHaveLength(2);
+      expect(String(consentCalls[0][0])).toContain('INSERT INTO user_consents');
+    });
+
+    it('should not block login when consent storage fails', async () => {
+      db.oneOrNone.mockResolvedValueOnce(mockUser);
+      usersService.requireOnboarded.mockResolvedValue(mockUser);
+      jwtService.sign.mockReturnValue('access-token');
+      // Only the consent INSERT fails; other queries (issueTokenPair) succeed.
+      db.query.mockImplementation((sql: string) =>
+        sql.includes('user_consents')
+          ? Promise.reject(new Error('consent table missing'))
+          : Promise.resolve({ rows: [], rowCount: 1 }),
+      );
+
+      const result = await service.googleLogin('google-id-token', [
+        { document: 'terms', acceptedAt: new Date().toISOString() },
+      ]);
+
+      expect(result).toHaveProperty('accessToken');
+    });
   });
 
   describe('refreshAccessToken', () => {

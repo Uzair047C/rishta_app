@@ -4,7 +4,7 @@ import { AuthService } from './auth.service';
 import { Public } from './public.decorator';
 import { CurrentUser } from './current-user.decorator';
 import { GoogleLoginDto } from './dto/google-login.dto';
-import { LogoutDto, RefreshDto } from './dto/auth.dto';
+import { FirebaseLoginDto, LogoutDto, RefreshDto } from './dto/auth.dto';
 
 // JwtAuthGuard is a global APP_GUARD; @Public opts routes out.
 @Controller('auth')
@@ -16,14 +16,14 @@ export class AuthController {
   @Post('google')
   @Public()
   async googleLogin(@Body() dto: GoogleLoginDto) {
-    return this.authService.googleLogin(dto.idToken);
+    return this.authService.googleLogin(dto.idToken, dto.consent);
   }
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('firebase')
   @Public()
-  async firebaseLogin(@Body() { idToken }: { idToken: string }) {
-    return this.authService.firebaseLogin(idToken);
+  async firebaseLogin(@Body() dto: FirebaseLoginDto) {
+    return this.authService.firebaseLogin(dto.idToken, dto.consent);
   }
 
   // refresh 30/min/IP

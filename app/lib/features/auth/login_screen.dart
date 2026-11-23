@@ -1,10 +1,13 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/core.dart';
 
 /// Login screen with Google Sign-In button.
-/// Matches the app's design language using Material 3 tokens.
+/// Error and in-progress state come from the auth provider, so they survive
+/// any rebuild and are visible in every sign-in path (Google/email/phone).
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -13,13 +16,15 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  bool _isSigningIn = false;
-  String? _error;
+  bool _acceptedTerms = false;
 
   @override
   Widget build(BuildContext context) {
     final screenType = Breakpoints.of(context);
     final isWide = screenType.isDesktop || screenType.isTablet;
+    final authState = ref.watch(authProvider);
+    final isSigningIn = authState.status == AuthStatus.authenticating;
+    final error = authState.error;
 
     return Scaffold(
       backgroundColor: Tokens.tanBase,
@@ -73,10 +78,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                   const SizedBox(height: Tokens.spaceXl * 2),
 
-                  // Google Sign-In button
+                  // Google Sign-In button (gated on 18+ + terms consent)
                   FilledButton.icon(
-                    onPressed: _isSigningIn ? null : _handleGoogleSignIn,
-                    icon: _isSigningIn
+                    onPressed: (isSigningIn || !_acceptedTerms) ? null : _handleGoogleSignIn,
+                    icon: isSigningIn
                         ? const SizedBox.square(
                             dimension: 20,
                             child: CircularProgressIndicator(
@@ -91,7 +96,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             errorBuilder: (_, __, ___) => const _GoogleIconFallback(),
                           ),
                     label: Text(
-                      _isSigningIn ? 'Signing in…' : 'Continue with Google',
+                      isSigningIn ? 'Signing in…' : 'Continue with Google',
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -101,6 +106,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       minimumSize: const Size.fromHeight(52),
                       backgroundColor: Colors.white,
                       foregroundColor: Colors.black87,
+                      disabledBackgroundColor: Colors.white.withValues(alpha: 0.6),
                       side: BorderSide(color: Colors.grey.shade300, width: 1.5),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(Tokens.radiusMd),
@@ -113,7 +119,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                   // Email sign-in / sign-up
                   TextButton(
-                    onPressed: _isSigningIn
+                    onPressed: isSigningIn
                         ? null
                         : () => Navigator.of(context).push(
                               MaterialPageRoute(builder: (_) => const EmailAuthScreen()),
@@ -130,7 +136,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                   // Phone OTP sign-in
                   TextButton(
-                    onPressed: _isSigningIn
+                    onPressed: isSigningIn
                         ? null
                         : () => Navigator.of(context).push(
                               MaterialPageRoute(builder: (_) => const PhoneAuthScreen()),
@@ -145,14 +151,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ),
 
-                  const SizedBox(height: Tokens.spaceMd),
-
-                  // Error message
-                  if (_error != null)
+                  // Error message — driven by the auth provider
+                  if (error != null)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: Tokens.spaceMd),
                       child: Text(
-                        _error!,
+                        error,
                         style: TextStyle(
                           color: Colors.red.shade700,
                           fontSize: 13,
@@ -163,13 +167,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                   const SizedBox(height: Tokens.spaceLg),
 
-                  // Terms & Privacy
-                  Text(
-                    'By continuing, you agree to our Terms of Service and Privacy Policy.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.brown.shade500,
-                        ),
-                    textAlign: TextAlign.center,
+                  // 18+ + terms consent checkbox
+                  CheckboxListTile(
+                    value: _acceptedTerms,
+                    onChanged: (v) {
+                      setState(() => _acceptedTerms = v ?? false);
+                      if (_acceptedTerms) {
+                        ref.read(authProvider.notifier).acceptTerms();
+                      }
+                    },
+                    controlAffinity: ListTileControlAffinity.leading,
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: Text.rich(
+                      TextSpan(
+                        text: 'I confirm I am 18+ and agree to the ',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Colors.brown.shade600,
+                            ),
+                        children: [
+                          _linkSpan(context, 'Terms of Service', 'https://rishta.app/terms'),
+                          const TextSpan(text: ' and '),
+                          _linkSpan(context, 'Privacy Policy', 'https://rishta.app/privacy'),
+                          const TextSpan(text: '.'),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -180,22 +203,26 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 
-  Future<void> _handleGoogleSignIn() async {
-    setState(() {
-      _isSigningIn = true;
-      _error = null;
-    });
+  TextSpan _linkSpan(BuildContext context, String label, String url) {
+    return TextSpan(
+      text: label,
+      style: TextStyle(
+        color: Tokens.pinkDeep,
+        decoration: TextDecoration.underline,
+        fontSize: Theme.of(context).textTheme.bodySmall?.fontSize,
+      ),
+      recognizer: TapGestureRecognizer()..onTap = () {
+        launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      },
+    );
+  }
 
+  Future<void> _handleGoogleSignIn() async {
     try {
       await ref.read(authProvider.notifier).signInWithGoogle();
       // Navigation is handled by AuthWrapper listening to auth state
-    } on Exception catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = e.toString().replaceFirst('Exception: ', '');
-          _isSigningIn = false;
-        });
-      }
+    } catch (_) {
+      // Error already stored in the provider; LoginScreen renders it.
     }
   }
 }

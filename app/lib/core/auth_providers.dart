@@ -63,6 +63,25 @@ class AuthNotifier extends StateNotifier<AuthState> {
   final Api _api;
   String? _pendingVerificationId;
 
+  /// When the user ticked the 18+/terms checkbox — sent with the next login
+  /// so the backend can store consent timestamps. Null = no fresh consent.
+  DateTime? _consentAcceptedAt;
+
+  /// Records fresh consent (called when the checkbox is ticked).
+  void acceptTerms() => _consentAcceptedAt = DateTime.now().toUtc();
+
+  /// Consent payload sent alongside login requests.
+  List<Map<String, String>> _consentPayload() {
+    final at = _consentAcceptedAt;
+    if (at == null) return const [];
+    final iso = at.toIso8601String();
+    _consentAcceptedAt = null; // one-shot: only the accepting session sends it
+    return [
+      {'document': 'terms', 'acceptedAt': iso},
+      {'document': 'privacy', 'acceptedAt': iso},
+    ];
+  }
+
   /// Restore session from secure storage on app startup.
   Future<void> _restoreSession() async {
     state = const AuthState(status: AuthStatus.authenticating);
@@ -97,18 +116,21 @@ class AuthNotifier extends StateNotifier<AuthState> {
         state = state.copyWith(status: AuthStatus.onboarding);
       }
     } on ApiException catch (e) {
-      // Only clear session on auth failures (401/403), not network errors
+      // Only clear session on real auth rejections from the server
+      // (401/403), never on network errors — offline launch stays signed in.
       if (e.statusCode == 401 || e.statusCode == 403) {
         await _authStorage.clear();
         state = const AuthState(status: AuthStatus.unauthenticated);
       } else {
-        // Network/5xx error - keep tokens, show retry state
-        state = const AuthState(status: AuthStatus.unauthenticated, error: 'Network error. Tap to retry.');
+        // Network/5xx error - keep tokens and the session, surface the error.
+        // hasSession() is still true, so the next launch (or retry via
+        // signInWithGoogle → Api retry-on-401) re-validates silently.
+        state = AuthState(status: AuthStatus.authenticating, error: 'Network error. Retrying when online…');
       }
     } catch (e) {
-      // Other unexpected errors - clear session
-      await _authStorage.clear();
-      state = const AuthState(status: AuthStatus.unauthenticated);
+      // Unknown (non-API) failure: don't clear a valid session on a guess —
+      // treat it like a network error and keep the stored tokens.
+      state = const AuthState(status: AuthStatus.authenticating, error: 'Something went wrong. Please try again.');
     }
   }
 
@@ -128,7 +150,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
       final response = await _api.post<Map<String, dynamic>>(
         '/auth/google',
-        body: {'idToken': idToken},
+        body: {'idToken': idToken, 'consent': _consentPayload()},
         requiresAuth: false,
       );
 
@@ -195,7 +217,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       // Exchange Firebase ID token for app tokens
       final response = await _api.post<Map<String, dynamic>>(
         '/auth/firebase',
-        body: {'idToken': idToken},
+        body: {'idToken': idToken, 'consent': _consentPayload()},
         requiresAuth: false,
       );
 
@@ -263,7 +285,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       // Exchange Firebase ID token for app tokens
       final response = await _api.post<Map<String, dynamic>>(
         '/auth/firebase',
-        body: {'idToken': idToken},
+        body: {'idToken': idToken, 'consent': _consentPayload()},
         requiresAuth: false,
       );
 
@@ -365,7 +387,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
       final response = await _api.post<Map<String, dynamic>>(
         '/auth/firebase',
-        body: {'idToken': idToken},
+        body: {'idToken': idToken, 'consent': _consentPayload()},
         requiresAuth: false,
       );
 

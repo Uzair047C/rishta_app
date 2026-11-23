@@ -79,7 +79,7 @@ describe('AuthController', () => {
       const result = await controller.googleLogin({ idToken: 'google-id-token' });
 
       expect(result).toEqual(expected);
-      expect(authService.googleLogin).toHaveBeenCalledWith('google-id-token');
+      expect(authService.googleLogin).toHaveBeenCalledWith('google-id-token', undefined);
     });
   });
 
@@ -96,7 +96,7 @@ describe('AuthController', () => {
       const result = await controller.firebaseLogin({ idToken: 'valid-firebase-id-token' });
 
       expect(result).toEqual(expected);
-      expect(authService.firebaseLogin).toHaveBeenCalledWith('valid-firebase-id-token');
+      expect(authService.firebaseLogin).toHaveBeenCalledWith('valid-firebase-id-token', undefined);
     });
 
     it('should propagate UnauthorizedException from service', async () => {

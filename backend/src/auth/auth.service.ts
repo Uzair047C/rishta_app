@@ -9,6 +9,7 @@ import { initializeApp, cert, getApps, App } from 'firebase-admin/app';
 import { createHash, randomBytes } from 'crypto';
 import { OAuth2Client } from 'google-auth-library';
 import { StreamService } from '../chat/stream.service';
+import { ConsentDto } from './dto/auth.dto';
 
 @Injectable()
 export class AuthService {
@@ -82,9 +83,16 @@ export class AuthService {
   }
 
   /** Shared tail of both login paths: block non-active users, check onboarding, issue tokens. */
-  private async finishLogin(user: UserRow): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
+  private async finishLogin(
+    user: UserRow,
+    consent?: ConsentDto[],
+  ): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
     if (user.status && user.status !== 'active') {
       throw new ForbiddenException(`account_${user.status}`);
+    }
+
+    if (consent && consent.length > 0) {
+      await this.recordConsent(user.id, consent);
     }
 
     // Check if user has completed onboarding
@@ -106,7 +114,7 @@ export class AuthService {
     return { accessToken, refreshToken, user, profileComplete };
   }
 
-  async firebaseLogin(idToken: string): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
+  async firebaseLogin(idToken: string, consent?: ConsentDto[]): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
     const firebasePayload = await this.validateFirebaseIdToken(idToken);
 
     // Phone-auth tokens carry a phone_number claim and no email — route them
@@ -120,14 +128,14 @@ export class AuthService {
           firebasePayload.emailVerified,
         );
 
-    return this.finishLogin(user);
+    return this.finishLogin(user, consent);
   }
 
   /**
    * Raw Google Sign-In: verifies a Google-issued ID token with google-auth-library.
    * Find-or-create keyed on the Google `sub` (stored as provider_subject).
    */
-  async googleLogin(idToken: string): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
+  async googleLogin(idToken: string, consent?: ConsentDto[]): Promise<{ accessToken: string; refreshToken: string; user: UserRow; profileComplete: boolean }> {
     let ticket;
     try {
       ticket = await this.oauthClient.verifyIdToken({ idToken, audience: this.googleClientIds });
@@ -145,7 +153,27 @@ export class AuthService {
 
     const user = await this.findOrCreateByGoogleSub(payload.sub, payload.email ?? '', payload.name);
 
-    return this.finishLogin(user);
+    return this.finishLogin(user, consent);
+  }
+
+  /** Upsert the client-captured consent timestamps. Best-effort: a failed
+   * insert must not block sign-in. */
+  private async recordConsent(userId: string, consent: ConsentDto[]): Promise<void> {
+    try {
+      for (const c of consent) {
+        await this.db.query(
+          `INSERT INTO user_consents (user_id, document, accepted_at)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (user_id, document) DO NOTHING`,
+          [userId, c.document, c.acceptedAt],
+        );
+      }
+    } catch (err) {
+      // ponytail: log-and-continue; consent is re-sent on next login
+      this.configService.get<never>('NODE_ENV') === 'production'
+        ? console.error('consent_record_failed', err)
+        : console.warn('consent_record_failed', err);
+    }
   }
 
   /** Find-or-create keyed on the Google `sub`; reuses the verified-email link logic. */
