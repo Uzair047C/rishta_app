@@ -68,5 +68,21 @@
 	</array>
 	<key>API_BASE</key>
 	<string>$(API_BASE)</string>
+	<!-- Google Sign-In (iOS): from Google Cloud Console > Credentials > iOS OAuth client.
+	     Replace the placeholder with your real iOS client ID and its reversed form. -->
+	<key>GIDClientID</key>
+	<string>YOUR_IOS_CLIENT_ID.apps.googleusercontent.com</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Google Sign-In</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<!-- reversed client ID, e.g. com.googleusercontent.apps.385499016700-abc123 -->
+				<string>REVERSED_IOS_CLIENT_ID</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
