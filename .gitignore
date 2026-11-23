@@ -130,3 +130,19 @@ coverage/
 *.test.ts
 *.spec.ts
 !*.e2e-spec.ts
+# ---- Secrets & credentials (never commit) ----
+# Real Google services config (placeholders/templates are fine to track)
+**/google-services.json
+**/GoogleService-Info.plist
+**/android/app/upload-keystore.jks
+**/*.jks
+**/*.keystore
+key.properties
+# Firebase service accounts
+serviceAccount*.json
+firebase-service-account*.json
+*service-account*.json
+# RevenueCat / Stream / misc API keys
+secrets.json
+# Local only files
+*.local.json
