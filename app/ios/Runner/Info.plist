@@ -71,7 +71,7 @@
 	<!-- Google Sign-In (iOS): from Google Cloud Console > Credentials > iOS OAuth client.
 	     Replace the placeholder with your real iOS client ID and its reversed form. -->
 	<key>GIDClientID</key>
-	<string>YOUR_IOS_CLIENT_ID.apps.googleusercontent.com</string>
+	<string>385499016700-qblfg71vt10kt1pjijemgff80tjan6hl.apps.googleusercontent.com</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -80,7 +80,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<!-- reversed client ID, e.g. com.googleusercontent.apps.385499016700-abc123 -->
-				<string>REVERSED_IOS_CLIENT_ID</string>
+				<string>com.googleusercontent.apps.385499016700-qblfg71vt10kt1pjijemgff80tjan6hl</string>
 			</array>
 		</dict>
 	</array>
