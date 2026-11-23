@@ -117,7 +117,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(status: AuthStatus.authenticating, error: null);
 
     try {
-      // Get Google account
+      // Raw Google ID token — the backend verifies it directly via
+      // google-auth-library (audience = GOOGLE_CLIENT_IDS).
       final idToken = await GoogleSignInService.signIn();
       if (idToken == null) {
         // User cancelled
@@ -125,23 +126,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
         return;
       }
 
-      // Backend verifies a FIREBASE ID token (firebase-admin verifyIdToken), not a
-      // raw Google OAuth token — mint one via Firebase Auth, like email/phone do.
-      final googleAuth = GoogleAuthProvider.credential(idToken: idToken);
-      final fbUser =
-          (await FirebaseAuth.instance.signInWithCredential(googleAuth)).user;
-      if (fbUser == null) {
-        throw Exception('Firebase sign-in failed');
-      }
-      final firebaseIdToken = await fbUser.getIdToken();
-      if (firebaseIdToken == null) {
-        throw Exception('Failed to obtain Firebase ID token');
-      }
-
-      // Exchange Firebase ID token for app tokens
       final response = await _api.post<Map<String, dynamic>>(
         '/auth/google',
-        body: {'idToken': firebaseIdToken},
+        body: {'idToken': idToken},
         requiresAuth: false,
       );
 
@@ -420,6 +407,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
       } catch (_) {
         // Ignore backend logout errors
       }
+    }
+
+    // Disconnect Google so the next sign-in shows the account picker
+    try {
+      await GoogleSignInService.signOut();
+    } catch (_) {
+      // Ignore Google sign-out errors
     }
 
     // Clear local storage
